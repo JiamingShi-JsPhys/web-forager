@@ -1,0 +1,2 @@
+# Keep binary fixtures byte-exact on Windows checkouts.
+*.pdf -text
