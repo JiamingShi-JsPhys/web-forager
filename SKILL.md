@@ -1,6 +1,6 @@
 ---
 name: web-forager
-version: 1.0.0
+version: 1.0.1
 description: >
   Polite, robots-aware web information gathering: search 360/Bing/Sogou,
   read HTML/PDF/DOCX/XLSX/EPUB/CSV and RSS/Atom, collect public pages from
@@ -10,7 +10,7 @@ description: >
   PubMed/DOI. Ships a CLI, an OpenCLI-style --agent envelope and a stdio MCP
   server. Optional Playwright rendering for JavaScript-heavy pages.
 metadata:
-  version: 1.0.0
+  version: 1.0.1
   author: Jiaming Shi
   license: MIT
   entry_point: python run.py

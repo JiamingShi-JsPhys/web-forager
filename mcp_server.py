@@ -368,9 +368,29 @@ def handle_request(request: dict[str, Any]) -> Optional[dict[str, Any]]:
     return _error(request_id, -32601, f"method not found: {method}")
 
 
+def _utf8_stream(stream: Any) -> Any:
+    """Force UTF-8 on a text stream when the host allows it.
+
+    Windows hosts may launch ``python`` with the ANSI code page (cp1252/cp936)
+    as the stdio encoding.  Writing a Chinese title then raises
+    ``UnicodeEncodeError`` and kills the server, so the streams are
+    reconfigured before the loop starts.  ``serve`` still has an ASCII
+    fallback for streams that cannot be reconfigured.
+    """
+
+    reconfigure = getattr(stream, "reconfigure", None)
+    if reconfigure is None:
+        return stream
+    try:
+        reconfigure(encoding="utf-8", errors="strict")
+    except (AttributeError, OSError, ValueError):
+        return stream
+    return stream
+
+
 def serve(stdin: Any = None, stdout: Any = None) -> int:
-    stdin = stdin or sys.stdin
-    stdout = stdout or sys.stdout
+    stdin = _utf8_stream(stdin or sys.stdin)
+    stdout = _utf8_stream(stdout or sys.stdout)
     for line in stdin:
         line = line.strip()
         if not line:
@@ -385,7 +405,11 @@ def serve(stdin: Any = None, stdout: Any = None) -> int:
             else:
                 response = handle_request(request)
         if response is not None:
-            stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
+            try:
+                payload = json.dumps(response, ensure_ascii=False)
+                stdout.write(payload + "\n")
+            except UnicodeEncodeError:
+                stdout.write(json.dumps(response, ensure_ascii=True) + "\n")
             stdout.flush()
     return 0
 

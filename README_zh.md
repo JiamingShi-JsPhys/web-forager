@@ -10,7 +10,7 @@
 
 [English](README.md) · **简体中文**
 
-**版本：** 1.0.0 ｜ **CLI 动作：** 6 ｜ **MCP 工具：** 7
+**版本：** 1.0.1 ｜ **CLI 动作：** 6 ｜ **MCP 工具：** 7
 
 ---
 
@@ -88,7 +88,7 @@ claude plugin install web-forager --marketplace https://github.com/JiamingShi-Js
 **Claude Code** —— 在会话内执行（v2.1.275+），先用 URL 添加市场，并锁定发布 tag：
 
 ```text
-/plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git#v1.0.0
+/plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git#v1.0.1
 ```
 
 再安装它列出的条目：
@@ -100,7 +100,7 @@ claude plugin install web-forager --marketplace https://github.com/JiamingShi-Js
 **Codex** —— 把 URL 注册为 Git 市场；`--ref` 锁定发布 tag，HTTPS 换成 SSH 或本地路径同样可用：
 
 ```bash
-codex plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git --ref v1.0.0
+codex plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git --ref v1.0.1
 ```
 
 **Codex** —— 从该市场安装插件：
@@ -112,13 +112,13 @@ codex plugin add web-forager@web-forager-marketplace
 **dsh（DeepSeek Harness）** —— 直接从同一个仓库 URL 安装进指定 profile：
 
 ```bash
-dsh plugin --profile web add github:JiamingShi-JsPhys/web-forager#v1.0.0
+dsh plugin --profile web add github:JiamingShi-JsPhys/web-forager#v1.0.1
 ```
 
 **CodeBuddy** —— 先把 URL 加为 Git 市场：
 
 ```text
-/plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git#v1.0.0
+/plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git#v1.0.1
 ```
 
 再安装它列出的条目：

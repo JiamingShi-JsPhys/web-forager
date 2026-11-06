@@ -5,7 +5,7 @@
     {
       "name": "web-forager",
       "source": "./",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "description": "Clean-room, robots-aware web information gathering: multi-engine search, HTML/PDF/Office/feed extraction, Bilibili/Zhihu/Xiaohongshu reading, sitemaps, resumable agent surfing, CLI + MCP."
     }
   ]

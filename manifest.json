@@ -1,6 +1,6 @@
 {
   "name": "web-forager",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "stage": "domain_extensions",
   "input_types": [
     "url",

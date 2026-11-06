@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.0.1 — 2026-11-06
+
+Patch release for the MCP server on Windows hosts.
+
+### Fixed
+
+- **MCP stdio encoding**: some hosts (ZCode among them) launch `python` with the
+  ANSI code page as the stdio encoding. A response containing a Chinese title
+  then raised `UnicodeEncodeError`, closed the server and surfaced as
+  "Connection closed" on the tool call. The server now reconfigures stdin and
+  stdout to UTF-8 at startup and falls back to `ensure_ascii` escapes when a
+  stream cannot be reconfigured.
+
+### Tests
+
+- Added `tests/test_mcp_stdio.py`, which reproduces the cp1252 sink and checks
+  both the reconfigure path and the ASCII fallback. Total: 117 tests.
+
+### Verified
+
+- Bilibili `feed`, `search`, `video` and `related` were exercised against the
+  live site from the CLI, and `web_bilibili` through the MCP server inside
+  ZCode. Comments and danmaku text remain out of scope for web-forager.
+
 ## 1.0.0 — 2026-11-06
 
 First stable release. web-forager is a complete public-web intelligence layer

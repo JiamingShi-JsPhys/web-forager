@@ -112,7 +112,7 @@ def test_help_contains_disclaimer() -> None:
 def test_version_flag() -> None:
     result = run_cli("--version")
     assert result.returncode == 0
-    assert "web-forager 1.0.0" in result.stdout
+    assert "web-forager 1.0.1" in result.stdout
 
 
 def test_bili_video_mode(site: str) -> None:

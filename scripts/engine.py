@@ -44,7 +44,7 @@ import requests
 from bs4 import BeautifulSoup
 from bs4.element import NavigableString, Tag
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 DEFAULT_USER_AGENT = (
     "WebForager/1.0 (Information Gathering; +https://example.org/web-forager; "
