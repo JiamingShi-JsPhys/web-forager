@@ -5,12 +5,23 @@ Actions
 -------
 fetch
     ``--url URL``   fetch one page and return metadata, Markdown and tables
-    ``--query TEXT`` search with Bing/DuckDuckGo, then fetch the top results
+    ``--query TEXT`` search (360+Bing by default), then fetch the top results
 
 clean
-    ``--input page.html``  clean a local HTML file
-    ``--url URL``          fetch a page and clean it
-    (no input)             read HTML from stdin
+    ``--input page.html``  clean a local HTML/PDF file
+    ``--url URL``          fetch a page (HTML or PDF) and clean it
+    (no input)             read HTML/PDF from stdin
+
+bili
+    ``--url BV...`` / ``--query TEXT`` / neither  Bilibili video, search or feed
+
+surf
+    ``--url URL`` or ``--query TEXT``  open/search, then follow ranked links
+    ``--depth N --follow same-site|all|none --session NAME``
+
+Global
+    ``--engine auto|all|360|bing|sogou|duckduckgo``
+    ``--agent``  OpenCLI-style ``{ok,data}`` / ``{ok,error}`` envelope for agents
 
 本插件仅供学术研究使用。使用者需遵守目标网站的 Terms of Service 及相关版权法律。
 禁止用于抓取个人隐私数据或进行恶意并发攻击。
@@ -29,7 +40,7 @@ _PLUGIN_ROOT = Path(__file__).resolve().parent
 if str(_PLUGIN_ROOT) not in sys.path:
     sys.path.insert(0, str(_PLUGIN_ROOT))
 
-from scripts import bilibili, engine  # noqa: E402
+from scripts import bilibili, engine, pdf as pdf_mod  # noqa: E402
 
 
 def _reconfigure_stdio() -> None:
@@ -52,15 +63,15 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=engine.DISCLAIMER,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--action", required=True, choices=["fetch", "clean", "bili"], help="operation to run")
-    parser.add_argument("--url", help="target URL, or a Bilibili BV/av id (fetch/clean/bili)")
-    parser.add_argument("--query", help="keyword query (fetch/bili)")
-    parser.add_argument("--input", dest="input_path", help="local HTML file (clean)")
+    parser.add_argument("--action", required=True, choices=["fetch", "clean", "bili", "surf"], help="operation to run")
+    parser.add_argument("--url", help="target URL, or a Bilibili BV/av id (fetch/clean/bili/surf)")
+    parser.add_argument("--query", help="keyword query (fetch/bili/surf)")
+    parser.add_argument("--input", dest="input_path", help="local HTML/PDF file (clean)")
     parser.add_argument(
         "--engine",
-        choices=["bing", "duckduckgo"],
-        default="bing",
-        help="search backend for --query (default: bing)",
+        choices=list(engine.SEARCH_ENGINES),
+        default="auto",
+        help="search backend: auto=360+Bing, all=360+Bing+Sogou (default: auto)",
     )
     parser.add_argument("--num-results", type=int, default=8, help="search results to request (default: 8)")
     parser.add_argument("--max-pages", type=int, default=3, help="result pages to fetch (default: 3)")
@@ -70,7 +81,17 @@ def build_parser() -> argparse.ArgumentParser:
         default="auto",
         help="Bilibili mode (default auto: query->search, url->video, neither->feed)",
     )
-    parser.add_argument("--depth", type=int, default=1, help="Bilibili surf depth (default: 1)")
+    parser.add_argument("--depth", type=int, default=1, help="Bilibili/surf depth (default: 1)")
+    parser.add_argument(
+        "--follow",
+        choices=["same-site", "all", "none"],
+        default="same-site",
+        help="surf link policy: same-site (default), all, none",
+    )
+    parser.add_argument(
+        "--session",
+        help="surf session name; visited URLs and the trail are saved under ~/.web-forager/sessions/",
+    )
     parser.add_argument(
         "--direct-search",
         action="store_true",
@@ -99,6 +120,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--user-agent", default=engine.DEFAULT_USER_AGENT, help="explicit User-Agent string")
     parser.add_argument("--format", choices=["json", "markdown"], default="json", help="stdout format")
+    parser.add_argument(
+        "--agent",
+        action="store_true",
+        help="OpenCLI-style envelope: {ok:true,data:...} or {ok:false,error:{code,message,hint}}",
+    )
     parser.add_argument("--out", help="write the result to this file instead of stdout")
     parser.add_argument(
         "--root",
@@ -126,6 +152,9 @@ def build_config(args: argparse.Namespace) -> engine.FetchConfig:
         max_pages=max(1, args.max_pages),
         num_results=max(1, args.num_results),
         verbose=args.verbose,
+        extract_links=args.action == "surf",
+        follow=args.follow,
+        search_engine=args.engine,
     )
     config.validate()
     return config
@@ -282,6 +311,39 @@ def cmd_fetch(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
     return engine.build_envelope("fetch", payload)
 
 
+def _pdf_document(
+    data: bytes,
+    source: str,
+    url: str,
+    config: engine.FetchConfig,
+) -> dict:
+    """Build a clean-style document from PDF bytes.
+
+    ``pdf_mod`` raises ``PdfUnavailable`` when pypdf is missing and
+    ``PdfExtractionError`` when the file cannot be parsed; ``main`` maps both
+    to stable exit codes instead of letting a traceback escape.
+    """
+
+    extracted = pdf_mod.extract(data)
+    markdown = pdf_mod.to_markdown(extracted, url=url or "")
+    if config.max_chars and len(markdown) > config.max_chars:
+        markdown = markdown[: config.max_chars].rstrip() + "\n\n<!-- truncated by web-forager -->"
+
+    return {
+        "tool": "web-forager",
+        "version": engine.__version__,
+        "action": "clean",
+        "generated_at": engine.utc_now(),
+        "source": source,
+        "content_type": "application/pdf",
+        "page_count": extracted.get("page_count", 0),
+        "empty_pages": extracted.get("empty_pages", 0),
+        "metadata": pdf_mod.to_metadata(extracted, url=url or ""),
+        "tables": [],
+        "markdown": markdown,
+    }
+
+
 def cmd_clean(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
     source = ""
     base_url: str | None = None
@@ -295,20 +357,28 @@ def cmd_clean(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
             path = Path(args.input_path)
             if not path.is_file():
                 raise ValueError(f"input file not found: {path}")
-            html = engine.decode_bytes(path.read_bytes())
+            data = path.read_bytes()
             source = str(path)
+            if pdf_mod.is_pdf(data):
+                return _pdf_document(data, source, "", config)
+            html = engine.decode_bytes(data)
             base_url = args.url if args.url else None
         elif args.url:
             fetcher = engine.HttpFetcher(config)
             response = fetcher.fetch(args.url)
-            html = response.text
             source = response.final_url
             base_url = response.final_url
+            if "application/pdf" in response.content_type or pdf_mod.is_pdf(response.content):
+                return _pdf_document(response.content, source, response.final_url, config)
+            html = response.text
         else:
             if sys.stdin.isatty():
                 raise ValueError("--action clean needs --input, --url, or HTML on stdin")
-            html = engine.decode_bytes(sys.stdin.buffer.read())
+            data = sys.stdin.buffer.read()
             source = "stdin"
+            if pdf_mod.is_pdf(data):
+                return _pdf_document(data, source, "", config)
+            html = engine.decode_bytes(data)
 
         markdown = engine.html_to_markdown(
             html,
@@ -340,6 +410,25 @@ def cmd_clean(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
+
+def cmd_surf(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
+    """Search (or open) a page, then follow ranked links like a human browsing."""
+
+    if bool(args.url) == bool(args.query):
+        raise ValueError("--action surf needs exactly one of --url or --query")
+
+    seed = args.url or args.query
+    payload = engine.surf_web(
+        seed,
+        config,
+        depth=max(0, args.depth),
+        follow=args.follow,
+        max_pages=max(1, args.max_pages),
+        engine_name=args.engine,
+        session=args.session or None,
+    )
+    return engine.build_envelope("surf", payload)
 
 
 def cmd_bili(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
@@ -386,6 +475,27 @@ def cmd_bili(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
     return engine.build_envelope("bili", payload)
 
 
+def _fail(
+    args: argparse.Namespace,
+    code: str,
+    message: str,
+    hint: str,
+    exit_code: int,
+) -> int:
+    """Report a failure either as an OpenCLI-style envelope or on stderr."""
+
+    if getattr(args, "agent", False):
+        payload = {
+            "ok": False,
+            "error": {"code": code, "message": message, "hint": hint},
+        }
+        print(json.dumps(payload, ensure_ascii=False))
+    else:
+        suffix = f" ({hint})" if hint else ""
+        print(f"error: {message}{suffix}", file=sys.stderr)
+    return exit_code
+
+
 def main(argv: list[str] | None = None) -> int:
     _reconfigure_stdio()
     parser = build_parser()
@@ -397,41 +507,61 @@ def main(argv: list[str] | None = None) -> int:
             document = cmd_fetch(args, config)
         elif args.action == "clean":
             document = cmd_clean(args, config)
+        elif args.action == "surf":
+            document = cmd_surf(args, config)
         else:
             document = cmd_bili(args, config)
     except engine.RobotsDenied as exc:
-        print(f"error: robots.txt denied this request: {exc}", file=sys.stderr)
-        return 3
+        return _fail(
+            args,
+            "robots_denied",
+            f"robots.txt denied this request: {exc}",
+            "use --ignore-robots only for resources you are authorised to access",
+            3,
+        )
     except engine.InvalidURLError as exc:
-        print(f"error: invalid URL: {exc}", file=sys.stderr)
-        return 2
+        return _fail(args, "invalid_url", f"invalid URL: {exc}", "pass an absolute http(s) URL", 2)
+    except engine.PdfUnavailable as exc:
+        return _fail(args, "pdf_unavailable", str(exc), "pip install pypdf", 7)
+    except engine.PdfExtractionError as exc:
+        return _fail(args, "pdf_extraction_failed", str(exc), "check that the file is a valid PDF", 5)
     except engine.FetchError as exc:
-        print(f"error: fetch failed: {exc}", file=sys.stderr)
-        return 4
+        return _fail(args, "fetch_failed", f"fetch failed: {exc}", "check the URL and network", 4)
     except engine.ExtractionError as exc:
-        print(f"error: extraction failed: {exc}", file=sys.stderr)
-        return 5
+        return _fail(
+            args,
+            "extraction_failed",
+            f"extraction failed: {exc}",
+            "try --render always (needs Playwright) for JavaScript-heavy pages",
+            5,
+        )
     except engine.RenderUnavailable as exc:
-        print(f"error: dynamic rendering unavailable: {exc}", file=sys.stderr)
-        return 6
+        return _fail(
+            args,
+            "render_unavailable",
+            f"dynamic rendering unavailable: {exc}",
+            "pip install playwright && playwright install chromium",
+            6,
+        )
     except ValueError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 2
+        return _fail(args, "invalid_argument", str(exc), "", 2)
     except KeyboardInterrupt:
-        print("interrupted", file=sys.stderr)
-        return 130
+        return _fail(args, "interrupted", "interrupted", "", 130)
     except Exception as exc:  # never surface a raw traceback to the user
         if getattr(args, "verbose", False):
             import traceback
 
             traceback.print_exc()
-        else:
-            print(f"error: unexpected failure: {exc}", file=sys.stderr)
-        return 1
+        return _fail(args, "unexpected_error", f"unexpected failure: {exc}", "run with --verbose for the traceback", 1)
 
     json_text = json.dumps(document, ensure_ascii=False, indent=2)
     markdown_text = document_to_markdown(document)
-    output = markdown_text if args.format == "markdown" else json_text
+    if args.agent:
+        output = json.dumps({"ok": True, "data": document}, ensure_ascii=False, indent=2)
+    elif args.format == "markdown":
+        output = markdown_text
+    else:
+        output = json_text
 
     if args.root and not args.out:
         try:

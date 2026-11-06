@@ -11,15 +11,15 @@ DISCLAIMER = (
     "本插件仅供学术研究使用。使用者需遵守目标网站的 Terms of Service 及相关版权法律。"
     "禁止用于抓取个人隐私数据或进行恶意并发攻击。"
 )
-ALLOWED_DEPENDENCIES = {"requests", "beautifulsoup4", "trafilatura", "playwright"}
+ALLOWED_DEPENDENCIES = {"requests", "beautifulsoup4", "trafilatura", "playwright", "pypdf"}
 
 
 def test_manifest_is_complete() -> None:
     manifest = json.loads((PLUGIN_ROOT / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["name"] == "web-forager"
-    assert manifest["version"] == "0.1.0"
+    assert manifest["version"] == "0.2.0"
     assert manifest["license"] == "MIT"
-    assert set(manifest["actions"]) == {"fetch", "clean", "bili"}
+    assert set(manifest["actions"]) == {"fetch", "clean", "bili", "surf"}
     assert (PLUGIN_ROOT / manifest["entrypoint"]).is_file()
     assert manifest["disclaimer"] == DISCLAIMER
 
@@ -83,6 +83,7 @@ def test_required_files_exist() -> None:
         "manifest.json",
         "run.py",
         "scripts/engine.py",
+        "scripts/pdf.py",
         "scripts/bilibili.py",
         "README.md",
         "SKILL.md",
@@ -91,6 +92,7 @@ def test_required_files_exist() -> None:
         "tests/test_engine.py",
         "tests/test_bilibili.py",
         "tests/test_fetch.py",
+        "tests/test_search_pdf_surf.py",
         "tests/test_cli.py",
     ):
         assert (PLUGIN_ROOT / relative).is_file(), relative
@@ -100,7 +102,7 @@ def test_multi_platform_manifests() -> None:
     for folder in (".claude-plugin", ".codex-plugin", ".codebuddy-plugin", ".dsh-plugin"):
         data = json.loads((PLUGIN_ROOT / folder / "plugin.json").read_text(encoding="utf-8"))
         assert data["name"] == "web-forager"
-        assert data["version"] == "0.1.0"
+        assert data["version"] == "0.2.0"
 
     for folder in (".claude-plugin", ".codex-plugin", ".codebuddy-plugin"):
         market = json.loads((PLUGIN_ROOT / folder / "marketplace.json").read_text(encoding="utf-8"))

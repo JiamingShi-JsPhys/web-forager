@@ -506,16 +506,22 @@ def feed(
             fetcher.close()
 
 
-def _search_via_bing(
+def _search_via_engines(
     query: str, config: engine.FetchConfig, fetcher: engine.HttpFetcher
 ) -> list[dict[str, Any]]:
-    """Best-effort discovery: ask Bing, keep only Bilibili video URLs."""
+    """Best-effort discovery: ask the web search engines, keep Bilibili video URLs."""
 
     candidates: list[dict[str, Any]] = []
     seen: set[str] = set()
     for search_query in (f"哔哩哔哩 {query}", f"B站 {query} 视频"):
         try:
-            results = engine.search(search_query, config, engine="bing", limit=config.num_results, fetcher=fetcher)
+            results = engine.search(
+                search_query,
+                config,
+                engine=config.search_engine,
+                limit=config.num_results,
+                fetcher=fetcher,
+            )
         except engine.FetchError:
             continue
         for item in results:
@@ -535,7 +541,7 @@ def _search_via_bing(
                     "url": BILI_VIDEO.format(bvid=bvid),
                     "title": clean_title(item.get("title", "")),
                     "snippet": item.get("snippet", ""),
-                    "source": "bing",
+                    "source": item.get("source", config.search_engine),
                 }
             )
         if len(candidates) >= config.num_results:
@@ -592,15 +598,16 @@ def search(
                 "search.bilibili.com disallows generic agents in robots.txt"
             )
         else:
-            cards = _search_via_bing(query, config, fetcher)
-            route = "bing"
+            cards = _search_via_engines(query, config, fetcher)
+            route = f"search:{config.search_engine}"
             note = (
                 "search.bilibili.com disallows all agents in robots.txt; "
-                "results were resolved through Bing and filtered to Bilibili video URLs"
+                f"results were resolved through the {config.search_engine} search backend "
+                "and filtered to Bilibili video URLs"
             )
             if not cards:
                 note += (
-                    "; Bing returned no video URLs — pass --url with a seed video, "
+                    "; the search engine returned no video URLs — pass --url with a seed video, "
                     "or --direct-search to query the Bilibili search page explicitly"
                 )
 

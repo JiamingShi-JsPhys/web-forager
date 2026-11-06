@@ -3,6 +3,10 @@ requests>=2.31
 beautifulsoup4>=4.12
 trafilatura>=1.6
 
+# Optional: PDF text extraction (BSD-3-Clause).
+# Without it, PDF inputs return exit code 7 with a clear install hint.
+# pypdf>=4
+
 # Optional: JavaScript rendering (Apache-2.0).
 # Install the package, then: python -m playwright install chromium
 # playwright>=1.40

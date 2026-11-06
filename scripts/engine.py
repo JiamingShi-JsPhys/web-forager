@@ -37,16 +37,17 @@ import urllib.parse
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Iterable, Iterator, Optional
 
 import requests
 from bs4 import BeautifulSoup
 from bs4.element import NavigableString, Tag
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 DEFAULT_USER_AGENT = (
-    "WebForager/0.1 (Academic Research; +https://example.org/web-forager; "
+    "WebForager/0.2 (Academic Research; +https://example.org/web-forager; "
     "contact: research@example.org)"
 )
 
@@ -84,6 +85,14 @@ class RenderUnavailable(WebForagerError):
     """Dynamic rendering was requested but Playwright is not usable."""
 
 
+class PdfUnavailable(WebForagerError):
+    """PDF support was requested but pypdf is not usable."""
+
+
+class PdfExtractionError(WebForagerError):
+    """The PDF could not be parsed or contained no text."""
+
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -107,10 +116,18 @@ class FetchConfig:
     max_pages: int = 3
     num_results: int = 8
     verbose: bool = False
+    extract_links: bool = False
+    max_links: int = 20
+    follow: str = "same-site"      # same-site | all | none
+    search_engine: str = "auto"
 
     def validate(self) -> None:
         if self.render not in ("auto", "never", "always"):
             raise ValueError("render must be auto, never or always")
+        if self.follow not in ("same-site", "all", "none"):
+            raise ValueError("follow must be same-site, all or none")
+        if self.search_engine not in ("auto", "all", "360", "bing", "sogou", "duckduckgo"):
+            raise ValueError("search_engine must be auto, all, 360, bing, sogou or duckduckgo")
         if self.timeout <= 0:
             raise ValueError("timeout must be positive")
         if self.delay < 0:
@@ -119,6 +136,8 @@ class FetchConfig:
             raise ValueError("max_chars must be >= 0")
         if self.max_pages < 1:
             raise ValueError("max_pages must be >= 1")
+        if self.max_links < 1:
+            raise ValueError("max_links must be >= 1")
         if not self.user_agent or len(self.user_agent) < 8:
             raise ValueError("user_agent must be a descriptive string")
 
@@ -521,6 +540,7 @@ _HTML_CONTENT_TYPES = (
 )
 _TEXT_CONTENT_TYPES = ("text/plain", "text/markdown", "text/csv")
 _JSON_CONTENT_TYPES = ("application/json", "application/ld+json")
+_PDF_CONTENT_TYPES = ("application/pdf",)
 
 
 @dataclass
@@ -617,11 +637,14 @@ class HttpFetcher:
 
     def _read_response(self, response: requests.Response, requested_url: str) -> HttpResponse:
         content_type = (response.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+        # Some servers label PDFs as application/octet-stream; trust the URL.
+        if content_type == "application/octet-stream" and requested_url.lower().split("?")[0].endswith(".pdf"):
+            content_type = "application/pdf"
         if content_type and not _is_supported_content_type(content_type):
             response.close()
             raise FetchError(
                 f"unsupported content type '{content_type}' for {requested_url}; "
-                "web-forager handles HTML, XML, plain text and JSON only"
+                "web-forager handles HTML, XML, plain text, JSON and PDF only"
             )
 
         chunks: list[bytes] = []
@@ -640,6 +663,8 @@ class HttpFetcher:
             response.close()
 
         raw = b"".join(chunks)[: self.config.max_bytes]
+        if raw[:5] == b"%PDF-":
+            content_type = "application/pdf"
         encoding = _detect_encoding(raw, content_type, response.encoding)
         text = raw.decode(encoding, errors="replace")
         if truncated:
@@ -657,9 +682,49 @@ class HttpFetcher:
             content_type=content_type or "text/html",
         )
 
+    def resolve(self, url: str) -> str:
+        """Follow redirects cheaply and decode Sogou's JS ``/link`` hop.
+
+        Used only for search-result URLs; the returned URL is still passed
+        through robots.txt before its content is fetched.
+        """
+
+        url = normalize_url(url)
+        self.limiter.wait(url)
+        response: Optional[requests.Response] = None
+        try:
+            response = self.session.get(
+                url, timeout=self.config.timeout, allow_redirects=True, stream=True
+            )
+            final = response.url
+            text = ""
+            if response.status_code == 200:
+                try:
+                    text = response.content[:4096].decode("utf-8", "ignore")
+                except Exception:
+                    text = ""
+            is_js_redirect = bool(
+                text and ("sogou.com/link" in final or "window.location.replace" in text)
+            )
+            if is_js_redirect:
+                match = re.search(r'window\.location\.replace\(["\']([^"\']+)', text)
+                if not match:
+                    match = re.search(r"URL='([^']+)'", text)
+                if match:
+                    final = match.group(1)
+            return final
+        except requests.RequestException:
+            return url
+        finally:
+            if response is not None:
+                try:
+                    response.close()
+                except Exception:
+                    pass
+
 
 def _is_supported_content_type(content_type: str) -> bool:
-    if content_type in _JSON_CONTENT_TYPES:
+    if content_type in _JSON_CONTENT_TYPES or content_type in _PDF_CONTENT_TYPES:
         return True
     return any(content_type.startswith(prefix) for prefix in _HTML_CONTENT_TYPES + _TEXT_CONTENT_TYPES)
 
@@ -722,54 +787,245 @@ def decode_bytes(data: bytes, content_type: str = "") -> str:
 _BING_RSS = "https://www.bing.com/search?q={query}&format=rss&count={count}"
 _BING_HTML = "https://www.bing.com/search?q={query}&count={count}&setlang=zh-hans&mkt=zh-CN"
 _DDG_HTML = "https://html.duckduckgo.com/html/?q={query}"
+_SO_360 = "https://www.so.com/s?q={query}&pn=1"
+_SOGOU = "https://www.sogou.com/web?query={query}"
+
+SEARCH_ENGINES = ("auto", "all", "360", "bing", "sogou", "duckduckgo")
+
+_360_INTERNAL_HOSTS = (
+    "so.com",
+    "360kan.com",
+    "hao.360.com",
+    "e.so.com",
+    "image.so.com",
+    "tv.360kan.com",
+)
+_SOGOU_BLOCK_MARKERS = ("antispider", "安全验证", "人机验证", "验证码")
 
 
 def search(
     query: str,
     config: FetchConfig,
-    engine: str = "bing",
+    engine: str = "auto",
     limit: Optional[int] = None,
     fetcher: Optional[HttpFetcher] = None,
 ) -> list[dict[str, str]]:
     """Return ``[{title, url, snippet, source}]`` for a keyword query.
 
-    Note: the search engine endpoint is a query interface, not a target page.
-    robots.txt therefore applies to the *result pages* we later fetch, not to
-    the query request itself.  Queries are still rate-limited per host.
+    ``engine`` is one of ``auto`` (360 + Bing), ``all`` (360 + Bing + Sogou),
+    ``360``, ``bing``, ``sogou`` or ``duckduckgo``.
+
+    Search endpoints are query interfaces, not target pages.  robots.txt
+    therefore applies to the *result pages* we later fetch, not to the query
+    request itself.  Queries are still rate-limited per host.
     """
 
     query = (query or "").strip()
     if not query:
         raise ValueError("query must not be empty")
     limit = limit or config.num_results or 8
-    engine = (engine or "bing").lower()
+    engine = (engine or "auto").lower()
+    if engine not in SEARCH_ENGINES:
+        raise ValueError(f"unsupported search engine: {engine}")
+
+    if engine == "auto":
+        engines = ["360", "bing"]
+    elif engine == "all":
+        engines = ["360", "bing", "sogou"]
+    else:
+        engines = [engine]
+
     own_fetcher = fetcher is None
     fetcher = fetcher or HttpFetcher(config)
-    quoted = urllib.parse.quote_plus(query)
+    groups: list[tuple[str, list[dict[str, str]]]] = []
+    errors: list[str] = []
 
-    results: list[dict[str, str]] = []
     try:
-        if engine == "duckduckgo":
-            response = fetcher.fetch(_DDG_HTML.format(query=quoted), check_robots=False)
-            results = parse_ddg_html(response.text, limit=limit)
-        else:
+        for name in engines:
             try:
-                response = fetcher.fetch(
-                    _BING_RSS.format(query=quoted, count=limit), check_robots=False
-                )
-                results = parse_bing_rss(response.text, limit=limit)
-            except FetchError:
-                results = []
-            if not results:
-                response = fetcher.fetch(
-                    _BING_HTML.format(query=quoted, count=limit), check_robots=False
-                )
-                results = parse_bing_html(response.text, limit=limit)
+                groups.append((name, _search_one(name, query, config, limit, fetcher)))
+            except Exception as exc:  # one engine failing must not kill the query
+                errors.append(f"{name}: {exc}")
     finally:
         if own_fetcher:
             fetcher.close()
 
-    return dedupe_results(results, limit=limit)
+    if not groups:
+        raise FetchError("all search engines failed: " + "; ".join(errors) or "no engine available")
+
+    if len(groups) == 1:
+        merged = groups[0][1]
+    else:
+        merged = merge_search_results(groups, query, limit=limit)
+    return dedupe_results(merged, limit=limit)
+
+
+def _search_one(
+    name: str,
+    query: str,
+    config: FetchConfig,
+    limit: int,
+    fetcher: HttpFetcher,
+) -> list[dict[str, str]]:
+    quoted = urllib.parse.quote_plus(query)
+    if name == "360":
+        response = fetcher.fetch(_SO_360.format(query=quoted), check_robots=False)
+        return parse_360_html(response.text, limit=limit)
+    if name == "sogou":
+        response = fetcher.fetch(_SOGOU.format(query=quoted), check_robots=False)
+        if is_sogou_blocked(response.text):
+            raise FetchError("Sogou returned a verification page (antispider)")
+        parsed = parse_sogou_html(response.text, base="https://www.sogou.com/", limit=limit)
+        return resolve_sogou_results(parsed, fetcher, limit=limit)
+    if name == "duckduckgo":
+        response = fetcher.fetch(_DDG_HTML.format(query=quoted), check_robots=False)
+        return parse_ddg_html(response.text, limit=limit)
+
+    # Bing: RSS is cheaper and gives direct URLs; HTML is the fallback.
+    try:
+        response = fetcher.fetch(_BING_RSS.format(query=quoted, count=limit), check_robots=False)
+        results = parse_bing_rss(response.text, limit=limit)
+    except FetchError:
+        results = []
+    if not results:
+        response = fetcher.fetch(_BING_HTML.format(query=quoted, count=limit), check_robots=False)
+        results = parse_bing_html(response.text, limit=limit)
+    return results
+
+
+def _query_tokens(query: str) -> list[str]:
+    return [token.lower() for token in re.split(r"[\s,，;；|]+", query.strip()) if token]
+
+
+def result_coverage(result: dict[str, str], tokens: list[str]) -> float:
+    """Fraction of query tokens present in title/snippet/url (0..1)."""
+
+    if not tokens:
+        return 0.0
+    haystack = " ".join(
+        (result.get("title", ""), result.get("snippet", ""), result.get("url", ""))
+    ).lower()
+    return sum(1 for token in tokens if token in haystack) / len(tokens)
+
+
+def merge_search_results(
+    groups: list[tuple[str, list[dict[str, str]]]],
+    query: str,
+    limit: int = 8,
+) -> list[dict[str, str]]:
+    """Merge several engines: best query coverage first, engine order breaks ties."""
+
+    tokens = _query_tokens(query)
+    scored: list[tuple[float, int, int, dict[str, str]]] = []
+    for group_index, (name, items) in enumerate(groups):
+        for rank, item in enumerate(items):
+            candidate = dict(item)
+            candidate.setdefault("source", name)
+            scored.append((result_coverage(candidate, tokens), group_index, rank, candidate))
+    scored.sort(key=lambda entry: (-entry[0], entry[1], entry[2]))
+    return [entry[3] for entry in scored[: max(limit * 3, limit)]]
+
+
+def parse_360_html(html: str, limit: int = 8) -> list[dict[str, str]]:
+    """Parse 360 Search organic results (``li.res-list``)."""
+
+    soup = make_soup(html)
+    results: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in soup.select("li.res-list"):
+        anchor = item.select_one("h3 a") or item.select_one("a[data-mdurl]")
+        if anchor is None:
+            continue
+        href = _attr_text(anchor, "data-mdurl") or _attr_text(anchor, "href")
+        url = absolute_url(href, base="https://www.so.com/")
+        if not url:
+            continue
+        host = urllib.parse.urlsplit(url).netloc.lower()
+        if any(host == internal or host.endswith("." + internal) for internal in _360_INTERNAL_HOSTS):
+            continue
+        heading = item.select_one("h3")
+        title = _clean_result_text(heading.get_text(" ", strip=True) if heading else "")
+        if not title:
+            continue
+        snippet = ""
+        for selector in (".res-desc", ".res-rich", ".res-comm-con", ".g-ellipsis2", ".mh-title"):
+            node = item.select_one(selector)
+            if node is not None:
+                snippet = _clean_result_text(node.get_text(" ", strip=True))
+                if snippet:
+                    break
+        if url in seen:
+            continue
+        seen.add(url)
+        results.append({"title": title, "url": url, "snippet": snippet, "source": "360"})
+        if len(results) >= limit:
+            break
+    return results
+
+
+def is_sogou_blocked(html: str) -> bool:
+    lowered = (html or "").lower()
+    return "antispider" in lowered or (
+        any(marker in html for marker in _SOGOU_BLOCK_MARKERS) and "vrwrap" not in lowered
+    )
+
+
+def parse_sogou_html(
+    html: str, base: str = "https://www.sogou.com/", limit: int = 8
+) -> list[dict[str, str]]:
+    """Parse Sogou organic results (``div.vrwrap``)."""
+
+    soup = make_soup(html)
+    results: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in soup.select("div.vrwrap"):
+        classes = " ".join(str(value) for value in (item.get("class") or []))
+        if "hintBox" in classes:
+            continue
+        anchor = item.select_one("h3 a")
+        if anchor is None:
+            continue
+        href = _attr_text(anchor, "href")
+        url = absolute_url(href, base=base)
+        if not url:
+            continue
+        heading = item.select_one("h3")
+        title = _clean_result_text(heading.get_text(" ", strip=True) if heading else "")
+        if not title:
+            continue
+        snippet = ""
+        for selector in (".str_info", ".space-txt", ".fz-mid", ".text-layout", ".str-text"):
+            node = item.select_one(selector)
+            if node is not None:
+                snippet = _clean_result_text(node.get_text(" ", strip=True))
+                if snippet:
+                    break
+        if url in seen:
+            continue
+        seen.add(url)
+        results.append({"title": title, "url": url, "snippet": snippet, "source": "sogou"})
+        if len(results) >= limit:
+            break
+    return results
+
+
+def resolve_sogou_results(
+    results: list[dict[str, str]],
+    fetcher: HttpFetcher,
+    limit: int = 8,
+) -> list[dict[str, str]]:
+    """Resolve Sogou ``/link?url=`` wrappers to the real target URL."""
+
+    resolved: list[dict[str, str]] = []
+    for item in results[:limit]:
+        url = item.get("url", "")
+        if "sogou.com/link" in url or "/link?url=" in url:
+            real = fetcher.resolve(url)
+            if real and "sogou.com/link" not in real:
+                item = dict(item)
+                item["url"] = real
+        resolved.append(item)
+    return resolved
 
 
 def dedupe_results(results: Iterable[dict[str, str]], limit: int = 8) -> list[dict[str, str]]:
@@ -1590,6 +1846,221 @@ def render_html(url: str, config: FetchConfig) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Link discovery, sessions and agentic browsing
+# ---------------------------------------------------------------------------
+
+_SKIP_LINK_WORDS = (
+    "登录",
+    "注册",
+    "隐私",
+    "免责声明",
+    "广告",
+    "login",
+    "sign in",
+    "sign up",
+    "register",
+    "privacy",
+    "cookie",
+)
+_SKIP_LINK_EXTENSIONS = (".zip", ".rar", ".7z", ".exe", ".dmg", ".apk", ".mp4", ".mp3", ".iso")
+
+
+def extract_links(
+    html: str,
+    base_url: str,
+    query: str = "",
+    limit: int = 20,
+    same_site: bool = True,
+) -> list[dict[str, Any]]:
+    """Rank in-page links for a follow-up visit.
+
+    Ordering follows the query: anchor text that covers more query tokens
+    ranks first; ties keep document order (how a human scans a page).
+    """
+
+    soup = make_soup(html)
+    base_host = urllib.parse.urlsplit(base_url).netloc.lower()
+    tokens = _query_tokens(query)
+    candidates: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    order = 0
+
+    for anchor in soup.find_all("a", href=True):
+        if any(parent.name in _SKIP_TAGS for parent in anchor.parents):
+            continue
+        url = absolute_url(_attr_text(anchor, "href"), base_url)
+        if not url or url in seen:
+            continue
+        parts = urllib.parse.urlsplit(url)
+        if parts.scheme not in _ALLOWED_SCHEMES:
+            continue
+        if same_site and parts.netloc.lower() != base_host:
+            continue
+        text = _clean_result_text(anchor.get_text(" ", strip=True))
+        if len(text) < 3:
+            continue
+        lowered = text.lower()
+        if any(word in lowered for word in _SKIP_LINK_WORDS):
+            continue
+        if any(parts.path.lower().endswith(ext) for ext in _SKIP_LINK_EXTENSIONS):
+            continue
+        score = result_coverage({"title": text, "snippet": "", "url": url}, tokens)
+        candidates.append(
+            {"url": url, "text": text, "score": round(score, 3), "order": order}
+        )
+        seen.add(url)
+        order += 1
+
+    candidates.sort(key=lambda item: (-item["score"], item["order"]))
+    return candidates[:limit]
+
+
+def session_path(name: str) -> Path:
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", str(name or "")).strip("-._") or "default"
+    return Path.home() / ".web-forager" / "sessions" / f"{safe}.json"
+
+
+def load_session(name: str) -> dict[str, Any]:
+    path = session_path(name)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    data.setdefault("visited", [])
+    data.setdefault("trail", [])
+    return data
+
+
+def save_session(name: str, data: dict[str, Any]) -> Path:
+    path = session_path(name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "visited": list(data.get("visited", []))[-1000:],
+        "trail": list(data.get("trail", []))[-500:],
+        "updated_at": utc_now(),
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
+def surf_web(
+    seed: str,
+    config: Optional[FetchConfig] = None,
+    depth: int = 1,
+    follow: Optional[str] = None,
+    max_pages: Optional[int] = None,
+    engine_name: str = "auto",
+    session: Optional[str] = None,
+    fetcher: Optional[HttpFetcher] = None,
+) -> dict[str, Any]:
+    """Search or open a page, then follow ranked links like a human browsing.
+
+    ``--session`` makes the walk resumable: visited URLs are skipped on the
+    next run and the trail is appended to ``~/.web-forager/sessions/<name>.json``.
+    """
+
+    config = config or FetchConfig()
+    config.validate()
+    follow = follow or config.follow
+    if follow not in ("same-site", "all", "none"):
+        raise ValueError("follow must be same-site, all or none")
+    config.follow = follow
+    config.extract_links = True
+    max_pages = max_pages or config.max_pages
+
+    own_fetcher = fetcher is None
+    fetcher = fetcher or HttpFetcher(config)
+    session_data = load_session(session) if session else {"visited": [], "trail": []}
+    visited: set[str] = set(session_data.get("visited", []))
+    trail: list[dict[str, Any]] = list(session_data.get("trail", []))
+    pages: list[dict[str, Any]] = []
+    search_results: list[dict[str, str]] = []
+
+    seed_text = str(seed or "").strip()
+    if not seed_text:
+        raise ValueError("surf needs a URL or a search query")
+    is_url = seed_text.lower().startswith(("http://", "https://"))
+    query = "" if is_url else seed_text
+
+    try:
+        if is_url:
+            seeds = [normalize_url(seed_text)]
+        else:
+            search_results = search(
+                query, config, engine=engine_name, limit=config.num_results, fetcher=fetcher
+            )
+            seeds = [item["url"] for item in search_results[:max_pages]]
+
+        queue: list[tuple[str, str, int]] = [(url, "search" if not is_url else "seed", 0) for url in seeds]
+
+        while queue and len(pages) < max_pages:
+            url, origin, level = queue.pop(0)
+            if url in visited:
+                continue
+            visited.add(url)
+            try:
+                page = fetch_page(url, config, fetcher=fetcher, query=query)
+            except (
+                RobotsDenied,
+                FetchError,
+                ExtractionError,
+                RenderUnavailable,
+                PdfUnavailable,
+                PdfExtractionError,
+            ) as exc:
+                pages.append({"url": url, "error": f"{exc.__class__.__name__}: {exc}"})
+                trail.append(
+                    {
+                        "step": len(trail) + 1,
+                        "level": level,
+                        "from": origin,
+                        "url": url,
+                        "error": f"{exc.__class__.__name__}: {exc}",
+                    }
+                )
+                continue
+
+            pages.append(page)
+            trail.append(
+                {
+                    "step": len(trail) + 1,
+                    "level": level,
+                    "from": origin,
+                    "url": url,
+                    "title": page.get("title", ""),
+                }
+            )
+
+            if level < depth and follow != "none":
+                for link in page.get("links", [])[: config.max_links]:
+                    if link["url"] in visited:
+                        continue
+                    queue.append((link["url"], url, level + 1))
+
+        return {
+            "mode": "surf",
+            "seed": seed_text,
+            "query": query,
+            "engine": engine_name,
+            "depth": depth,
+            "follow": follow,
+            "session": session or "",
+            "search_results": search_results,
+            "trail": trail,
+            "visited": sorted(visited),
+            "pages": pages,
+            "results": pages,
+        }
+    finally:
+        if session:
+            save_session(session, {"visited": sorted(visited), "trail": trail})
+        if own_fetcher:
+            fetcher.close()
+
+
+# ---------------------------------------------------------------------------
 # High-level pipeline
 # ---------------------------------------------------------------------------
 
@@ -1598,6 +2069,7 @@ def fetch_page(
     url: str,
     config: Optional[FetchConfig] = None,
     fetcher: Optional[HttpFetcher] = None,
+    query: str = "",
 ) -> dict[str, Any]:
     """Fetch one URL and return a JSON-serialisable record."""
 
@@ -1639,7 +2111,27 @@ def fetch_page(
         final_url = response.final_url if response else url
         status = response.status if response else 200
 
-        if any(ct in content_type for ct in _JSON_CONTENT_TYPES) and response is not None:
+        from . import pdf as pdf_mod
+
+        is_pdf_payload = response is not None and (
+            content_type in _PDF_CONTENT_TYPES or pdf_mod.is_pdf(response.content)
+        )
+
+        if is_pdf_payload and response is not None:
+            try:
+                pdf_document = pdf_mod.extract(response.content)
+            except pdf_mod.PdfUnavailable as exc:
+                raise PdfUnavailable(str(exc)) from exc
+            except pdf_mod.PdfError as exc:
+                raise PdfExtractionError(str(exc)) from exc
+            markdown = pdf_mod.to_markdown(pdf_document, url=final_url)
+            metadata = pdf_mod.to_metadata(pdf_document, url=final_url)
+            tables = []
+            warnings.append(
+                f"PDF text extracted: {pdf_document.get('page_count', 0)} page(s), "
+                f"{pdf_document.get('empty_pages', 0)} empty"
+            )
+        elif any(ct in content_type for ct in _JSON_CONTENT_TYPES) and response is not None:
             markdown = "```json\n" + response.text.strip() + "\n```"
             metadata = {
                 "title": "",
@@ -1682,6 +2174,16 @@ def fetch_page(
             markdown = markdown[: config.max_chars].rstrip() + "\n\n<!-- truncated by web-forager -->"
             warnings.append(f"markdown truncated to {config.max_chars} characters")
 
+        links = []
+        if config.extract_links and not is_pdf_payload:
+            links = extract_links(
+                html,
+                final_url,
+                query=query,
+                limit=config.max_links,
+                same_site=config.follow == "same-site",
+            )
+
         return {
             "url": url,
             "final_url": final_url,
@@ -1693,6 +2195,7 @@ def fetch_page(
             "metadata": metadata,
             "markdown": markdown,
             "tables": tables,
+            "links": links,
             "warnings": warnings,
         }
     finally:
@@ -1703,7 +2206,7 @@ def fetch_page(
 def fetch_by_query(
     query: str,
     config: Optional[FetchConfig] = None,
-    engine: str = "bing",
+    engine: str = "auto",
     fetcher: Optional[HttpFetcher] = None,
 ) -> dict[str, Any]:
     """Search for a keyword query, then fetch and clean the top results."""
@@ -1747,13 +2250,24 @@ def fetch_by_query(
 
 
 def build_envelope(action: str, payload: dict[str, Any]) -> dict[str, Any]:
-    """Wrap a payload with tool metadata for stable downstream parsing."""
+    """Wrap a payload with tool metadata for stable downstream parsing.
 
-    return {
+    ``results`` is the flat list an agent loops over: fetched pages, videos or
+    Bilibili items.  A surf run keeps its extra ``trail``/``visited`` fields.
+    """
+
+    envelope: dict[str, Any] = {
         "tool": "web-forager",
         "version": __version__,
         "action": action,
         "generated_at": utc_now(),
-        "results": payload.get("pages") if action == "fetch" and "pages" in payload else [payload],
-        **{key: value for key, value in payload.items() if key != "pages"},
     }
+    envelope.update(payload)
+    if "results" not in envelope:
+        if "pages" in payload:
+            envelope["results"] = payload["pages"]
+        elif "videos" in payload:
+            envelope["results"] = payload["videos"]
+        else:
+            envelope["results"] = [payload]
+    return envelope

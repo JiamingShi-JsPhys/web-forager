@@ -41,6 +41,24 @@ def site(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
         (FIXTURES / "table.html").read_text(encoding="utf-8"), encoding="utf-8"
     )
     (root / "data.bin").write_bytes(bytes([0, 1, 2]))
+    (root / "sample.pdf").write_bytes((FIXTURES / "sample.pdf").read_bytes())
+    (root / "search360.html").write_text(
+        (FIXTURES / "search_360.html").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    (root / "searchsogou.html").write_text(
+        (FIXTURES / "search_sogou.html").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    surf_dir = root / "surf"
+    surf_dir.mkdir()
+    for name, fixture in (
+        ("index.html", "surf_start.html"),
+        ("one.html", "surf_one.html"),
+        ("two.html", "surf_two.html"),
+        ("three.html", "surf_three.html"),
+    ):
+        (surf_dir / name).write_text(
+            (FIXTURES / fixture).read_text(encoding="utf-8"), encoding="utf-8"
+        )
     (root / "bili_home.html").write_text(
         (FIXTURES / "bili_cards.html").read_text(encoding="utf-8"), encoding="utf-8"
     )
@@ -56,10 +74,17 @@ def site(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
 
     handler = functools.partial(_QuietHandler, directory=str(root))
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    # Sogou wraps results in /link?url=... pages that answer with a JS redirect.
+    (root / "link").write_text(
+        "<html><script>window.location.replace("
+        f'"{base}/surf/two.html");</script></html>',
+        encoding="utf-8",
+    )
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        yield f"http://127.0.0.1:{server.server_address[1]}"
+        yield base
     finally:
         server.shutdown()
         server.server_close()
