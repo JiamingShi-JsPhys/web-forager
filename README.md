@@ -399,4 +399,4 @@ Honest edge cases — read before relying on any output:
 
 MIT. See [LICENSE](LICENSE) and [THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt).
 
-**Author & Maintainer**: Jiaming Shi (Westlake University)
+**Author & Maintainer**: Jiaming Shi
