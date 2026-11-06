@@ -399,4 +399,4 @@ python -m pytest tests -q
 
 MIT。见 [LICENSE](LICENSE) 与 [THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt)。
 
-**作者与维护者**：Jiaming Shi（西湖大学）
+**作者与维护者**：Jiaming Shi
