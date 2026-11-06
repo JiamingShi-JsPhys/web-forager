@@ -1,9 +1,9 @@
 ---
 trigger: always_on
-description: web-forager operating rules (v1.0.1)
+description: web-forager operating rules (v1.1.0)
 ---
 
-# web-forager — agent operating rules (v1.0.1)
+# web-forager — agent operating rules (v1.1.0)
 
 web-forager is a clean-room, robots-aware public-web intelligence layer. It
 searches, fetches, extracts and browses the open web to collect public information; it
@@ -62,5 +62,12 @@ Add `--agent` to any CLI action for a machine-readable
   follows existing links only; it does not click buttons, submit forms or run
   page JavaScript.
 - **Cite what you use** and respect each site's Terms of Service and copyright.
+
+## Browser mode (Node 18+)
+
+`node browser/run.js --playbook <name>` drives a real browser through
+`WEB_FORAGER_BRIDGE`. It is read-only by default; write-like controls need
+`--allow-write` after explicit authorisation. Without a bridge, a live run
+exits 3. `browser/mcp_server.js` exposes the same moves as MCP tools.
 
 Full contract: [`SKILL.md`](SKILL.md) and [`README.md`](README.md).

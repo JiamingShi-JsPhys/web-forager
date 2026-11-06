@@ -5,3 +5,4 @@ __pycache__/
 
 tmp_run/
 .mypy_cache/
+browser/tests/.tmp*/

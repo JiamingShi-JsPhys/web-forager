@@ -1,8 +1,8 @@
 # web-forager
 
-> **A clean-room, robots-aware web information gathering toolkit for agents and analysts, with a CLI, an MCP server and a Claude Code skill.**
+> **A clean-room, robots-aware web information gathering toolkit for agents and analysts, with a CLI, two MCP servers and a Claude Code skill.**
 >
-> It searches 360 / Bing / Sogou, reads HTML, PDF, DOCX, XLSX, EPUB, CSV and RSS/Atom, collects public pages from Bilibili, Zhihu, Xiaohongshu, Weibo, Douban, news sites, blogs and forums, discovers sitemaps, splits long pages into context-sized chunks, caches responses politely, and can surf the open web link by link with resumable sessions. Optional scholarly lookups cover arXiv, Crossref, PubMed and DOI. Every page is checked against robots.txt and rate-limited per origin.
+> It has two modes. **HTTP mode** searches 360 / Bing / Sogou, reads HTML, PDF, DOCX, XLSX, EPUB, CSV and RSS/Atom, collects public pages from Bilibili, Zhihu, Xiaohongshu, Weibo, Douban, news sites, blogs and forums, discovers sitemaps, splits long pages into context-sized chunks, caches responses politely, and can surf the open web link by link with resumable sessions. Optional scholarly lookups cover arXiv, Crossref, PubMed and DOI. **Browser mode** drives a real browser through a pluggable bridge for login-state pages, rendered content and Bilibili danmaku, following seven read-only playbooks. Every HTTP page is checked against robots.txt and rate-limited per origin.
 
 > ## Disclaimer (read this first)
 >
@@ -10,7 +10,7 @@
 
 **English** · [简体中文](README_zh.md)
 
-**Version:** 1.0.1 | **CLI actions:** 6 | **MCP tools:** 7
+**Version:** 1.1.0 | **CLI actions:** 6 | **MCP tools:** 7 | **Browser playbooks:** 7
 
 ---
 
@@ -32,7 +32,9 @@ In the current agent ecosystem, tools solve one half of the problem: a search AP
 
 **Compliance is built into the fetcher, not bolted on.** robots.txt (RFC 9309 subset), per-origin rate limiting, response-size caps, redirect limits and an explicit information-gathering User-Agent apply to every request, including search, sitemap and surf hops.
 
-**Agent-first interfaces degrade instead of crashing.** `--agent` yields a stable `{"ok":…}` envelope, `mcp_server.py` exposes seven MCP tools, and `--chunk-size` splits long pages by heading. Missing Playwright returns exit code 6, missing `pypdf` returns exit code 7, and a site without a sitemap returns an empty result with a note.
+**Agent-first interfaces degrade instead of crashing.** `--agent` yields a stable `{"ok":…}` envelope, `mcp_server.py` exposes seven MCP tools, `browser/mcp_server.js` exposes three more, and `--chunk-size` splits long pages by heading. Missing Playwright returns exit code 6, missing `pypdf` returns exit code 7, and a site without a sitemap returns an empty result with a note.
+
+**Two modes cover both halves of the web.** HTTP mode reads what the server returns: fast, auditable, robots-aware. Browser mode reads what a person actually sees after scripts run, login state applies and a player is mounted. It ships no browser of its own: it starts the command in `WEB_FORAGER_BRIDGE` and speaks a small JSON-RPC protocol to it. Without a bridge, a live browser run exits 3 instead of pretending a page was read. Both modes write the same `metadata / markdown / tables / warnings` record shape.
 
 ---
 
@@ -63,6 +65,8 @@ flowchart LR
 
 `surf` only follows `<a href>` links that already exist in the page; it never constructs guessed URLs, submits forms or executes page JavaScript. `map` reads only published sitemaps, and the optional scholarly action calls documented APIs instead of scraping result pages.
 
+Browser mode is a second loop beside this one: the bridge supplies a page, `browser/run.js` reads a DOM snapshot, the session decides what is new, the playbook picks the next navigation step and a capture is written. Only one state-changing action runs per observation cycle, and write-like controls are denied by default.
+
 ---
 
 ## Installation
@@ -88,7 +92,7 @@ claude plugin install web-forager --marketplace https://github.com/JiamingShi-Js
 **Claude Code** — from inside a session (v2.1.275+), add the marketplace from the URL first, pinned to the release tag:
 
 ```text
-/plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git#v1.0.1
+/plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git#v1.1.0
 ```
 
 Then install the entry it lists:
@@ -100,7 +104,7 @@ Then install the entry it lists:
 **Codex** — register the URL as a Git marketplace; `--ref` pins the release tag, and an SSH URL or a local path works in place of the HTTPS one:
 
 ```bash
-codex plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git --ref v1.0.1
+codex plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git --ref v1.1.0
 ```
 
 **Codex** — install the plugin from that marketplace:
@@ -112,13 +116,13 @@ codex plugin add web-forager@web-forager-marketplace
 **dsh (DeepSeek Harness)** — installs from the same repository URL straight into a profile:
 
 ```bash
-dsh plugin --profile web add github:JiamingShi-JsPhys/web-forager#v1.0.1
+dsh plugin --profile web add github:JiamingShi-JsPhys/web-forager#v1.1.0
 ```
 
 **CodeBuddy** — add the URL as a Git marketplace:
 
 ```text
-/plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git#v1.0.1
+/plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git#v1.1.0
 ```
 
 Then install the entry it lists:
@@ -191,7 +195,7 @@ pip install playwright && playwright install chromium  # JS rendering
 pip install pypdf                                      # PDF text
 ```
 
-DOCX/XLSX/EPUB/CSV, RSS/Atom, sitemap parsing and the MCP server need **no extra package**. See [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md).
+DOCX/XLSX/EPUB/CSV, RSS/Atom, sitemap parsing and both MCP servers need **no extra Python package**. Browser mode needs Node.js 18 or newer; a browser bridge is supplied by you, and `browser/bridges/playwright-bridge.js` additionally needs `npm install playwright`. See [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md).
 
 ---
 
@@ -225,7 +229,54 @@ Four commands put the common actions behind a single line:
 /web-forager:scholar 10.1038/nature14539
 ```
 
-### MCP server
+### Browser mode
+
+The browser layer lives in `browser/` and needs Node.js 18 or newer. It is
+read-only by default: like, coin, favourite, follow, share, comment, danmaku and
+publish are denied unless `--allow-write` is passed after the user authorises
+that single action.
+
+```bash
+node browser/run.js --list
+node browser/run.js --playbook bili-feed --session bili-01 --max-items 8 --agent
+node browser/run.js --playbook bili-video --url "https://www.bilibili.com/video/BV1xx411c7mD"
+node browser/run.js --playbook bili-chain --url "https://www.bilibili.com/video/BV1xx411c7mD"
+node browser/run.js --playbook bili-danmaku --url "https://www.bilibili.com/video/BV1xx411c7mD"
+node browser/run.js --playbook zhihu-dig --query "reinforcement learning" --agent
+node browser/run.js --playbook xhs-dig --query "city walk guide" --agent
+node browser/run.js --playbook search-dig --query "reinforcement learning" --agent
+node browser/run.js --playbook bili-feed --dry-run
+```
+
+Connect a bridge with `WEB_FORAGER_BRIDGE` or `--bridge`; the reference bridge
+is optional:
+
+```bash
+npm install playwright && npx playwright install chromium
+WEB_FORAGER_BRIDGE="node browser/bridges/playwright-bridge.js" node browser/run.js --playbook bili-feed
+```
+
+`WEB_FORAGER_BROWSER_HEADFUL=1` shows the window,
+`WEB_FORAGER_BROWSER_PROFILE=/path` reuses a persistent profile (this is what
+carries login state for the `extension` backend), and
+`WEB_FORAGER_BROWSER_CDP=http://127.0.0.1:9222` attaches to a browser you
+already control (`cdp`). Backend labels are bookkeeping: the bridge declares its
+real capabilities, and the run payload records them.
+
+| Playbook | Does | Requires |
+|---|---|---|
+| `bili-feed` | Home feed, scroll and capture unseen cards | none |
+| `bili-video` | One video and its visible comments | `--url` or `--bvid` |
+| `bili-chain` | Follow the next-episode control and resume from the session | `--url`, `--bvid`, or a chain |
+| `bili-danmaku` | Timestamped danmaku, falling back to `observe` (experimental) | `--url` or `--bvid` |
+| `zhihu-dig` | Zhihu search, rank links, capture the best unseen page | `--query` |
+| `xhs-dig` | Xiaohongshu public notes, rank `/explore` links, capture one | `--query` |
+| `search-dig` | Bilibili search, rank cards, open the best unseen result | `--query` |
+
+`zhihu-dig` and `xhs-dig` return `login_required` (exit 6) when the platform
+shows a login wall; they never try to get around it.
+
+### MCP servers
 
 ```json
 {
@@ -233,16 +284,27 @@ Four commands put the common actions behind a single line:
     "web-forager": {
       "command": "python",
       "args": ["/absolute/path/to/web-forager/mcp_server.py"]
+    },
+    "web-forager-browser": {
+      "command": "node",
+      "args": ["/absolute/path/to/web-forager/browser/mcp_server.js"]
     }
   }
 }
 ```
 
-Tools: `web_fetch`, `web_search`, `web_surf`, `web_scholar`, `web_map`, `web_bilibili`, `web_clean`. Test the protocol directly:
+HTTP tools: `web_fetch`, `web_search`, `web_surf`, `web_scholar`, `web_map`,
+`web_bilibili`, `web_clean`. Browser tools: `browser_list`, `browser_run`,
+`browser_session`. Test the protocol directly:
 
 ```bash
 printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
   '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | python mcp_server.py
+```
+
+```bash
+printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+  '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | node browser/mcp_server.js
 ```
 
 ### Workspace output
@@ -260,6 +322,14 @@ Writes only:
 ```
 
 `material/` and `results/` belong to the user and the orchestrator; web-forager never writes there.
+
+Browser captures follow the same discipline:
+
+```text
+<WS>/process/web-forager/browser/web-forager-browser_<timestamp>_<slug>.json
+<WS>/process/web-forager/browser/web-forager-browser_<timestamp>_<slug>.md
+<WS>/_broadcast/web-forager-browser_<timestamp>_<slug>.json
+```
 
 ### When you need the CLI
 
@@ -306,7 +376,7 @@ python run.py --action bili --mode feed --max-items 10
 
 ## Requirements
 
-Python 3.10+. Core runtime: `requests`, `beautifulsoup4`, `trafilatura`. Optional: `playwright` (JS rendering), `pypdf` (PDF). `defusedxml` is used when already installed but is never required — XML with an internal DTD subset or any ENTITY declaration is rejected regardless. No third-party code is vendored; every library stays under its own permissive licence. No GPL/AGPL dependency is used. The full per-capability matrix lives in [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md).
+Python 3.10+. Core runtime: `requests`, `beautifulsoup4`, `trafilatura`. Optional: `playwright` (JS rendering), `pypdf` (PDF). `defusedxml` is used when already installed but is never required — XML with an internal DTD subset or any ENTITY declaration is rejected regardless. Browser mode additionally needs Node.js 18+ and a bridge command; `browser/bridges/playwright-bridge.js` needs `playwright` installed with npm. No third-party code is vendored; every library stays under its own permissive licence. No GPL/AGPL dependency is used. The full per-capability matrix lives in [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md).
 
 ---
 
@@ -331,9 +401,16 @@ web-forager/
 ├── package.json / index.js       npm + dsh packaging
 ├── cordis.patch.yml              dsh bundle patch
 ├── run.py                        CLI: fetch / clean / bili / surf / scholar / map
-├── mcp_server.py                 MCP stdio server (7 tools)
+├── mcp_server.py                 MCP stdio server (7 HTTP tools)
+├── browser/                      browser mode (Node 18+)
+│   ├── run.js                    CLI: seven read-only playbooks
+│   ├── mcp_server.js             MCP stdio server (3 browser tools)
+│   ├── lib/                      backend bridge, session, record, safety, snapshot
+│   ├── playbooks/                bili-* / zhihu-dig / xhs-dig / search-dig
+│   ├── bridges/                  optional Playwright reference bridge
+│   └── tests/                    fake backend + fake bridge (35 tests)
 ├── SKILL.md                      Claude Code skill contract
-├── commands/                     /fetch /surf /scholar /map
+├── commands/                     /fetch /surf /scholar /map /browse
 ├── docs/DEPENDENCIES.md          per-capability dependency matrix
 ├── scripts/
 │   ├── engine.py                 robots, fetch, search, cache, chunks, Markdown, surf
@@ -343,7 +420,7 @@ web-forager/
 │   ├── scholar.py                arXiv / Crossref / PubMed / DOI
 │   ├── sitemap.py                sitemap discovery
 │   └── bilibili.py               Bilibili adapter
-├── tests/                        # offline HTTP fixtures (115 tests)
+├── tests/                        # offline HTTP fixtures (119 tests)
 ├── requirements.txt
 ├── THIRD_PARTY_LICENSES.txt
 ├── CHANGELOG.md
@@ -357,9 +434,10 @@ web-forager/
 
 ```bash
 python -m pytest tests -q
+npm run test:browser
 ```
 
-That is **115 tests**, all passing and fully offline. `conftest.py` starts a temporary local HTTP server serving robots.txt, articles, PDF/Office files, feeds, sitemaps, search-result pages and multi-hop surf pages. The suite covers robots denial, extraction, tables, documents, feeds, cache, search pagination, chunking, MCP, surf sessions, installer behaviour, host-rule and disclaimer checks, and every exit code.
+That is **119 Python tests** plus **35 browser tests**, all passing and fully offline. `conftest.py` starts a temporary local HTTP server serving robots.txt, articles, PDF/Office files, feeds, sitemaps, search-result pages and multi-hop surf pages. The Python suite covers robots denial, extraction, tables, documents, feeds, cache, search pagination, chunking, MCP, surf sessions, installer behaviour, host-rule and disclaimer checks, and every exit code. The browser suite uses a fake backend plus a fake bridge that speaks the wire protocol, so the CLI runs end to end without a browser.
 
 ---
 
@@ -371,9 +449,13 @@ Honest edge cases — read before relying on any output:
 - **Scholarly APIs return metadata and abstracts**: they do not return full papers; respect each platform's terms.
 - **`--render auto` is a heuristic**: short visible text plus SPA markers. Complex sites may need `--render always`, and `--wait-for` / `--scroll` only work when Playwright is installed.
 - **Search depends on public result pages**: availability varies by network. Sogou may show a human-verification page and is excluded from the default `auto` route.
-- **Bilibili reads public pages only**: no login, comments, subtitles or private lists.
+- **Bilibili HTTP mode reads public pages only**: no login, comments, subtitles or private lists.
+- **Browser mode needs a bridge**: without `WEB_FORAGER_BRIDGE` (or `--bridge`), a live run exits 3. The reference Playwright bridge needs `playwright` installed separately.
+- **Browser mode is read-only by default**: write-like controls are denied unless `--allow-write` is passed after explicit authorisation.
+- **Danmaku is experimental**: DOM timestamps are read when the page exposes them; otherwise the bridge must implement `observe("danmaku", ms)`. Canvas-rendered text still needs OCR.
+- **Login walls are not bypassed**: `zhihu-dig` and `xhs-dig` stop with `login_required`; reuse a logged-in profile through your bridge.
 - **`surf` follows ordinary links only**: it does not click buttons, execute JavaScript or handle login walls.
-- **robots.txt unreachable means deny**: that is the conservative RFC behaviour. `--ignore-robots` is only for resources you are explicitly authorised to access.
+- **robots.txt unreachable means deny**: that is the conservative RFC behaviour. `--ignore-robots` is only for resources you are explicitly authorised to access. Browser mode does not consult robots.txt; it relies on the human-paced, read-only playbooks instead.
 
 ---
 

@@ -15,7 +15,9 @@ Everything else is optional and degrades with a clear exit code and hint.
 | RSS / Atom / RSS 1.0 | standard library | — | built in | — |
 | Sitemap parsing (`.xml`, `.xml.gz`) | standard library | — | built in | — |
 | arXiv / Crossref / PubMed / DOI | `requests` only | — | built in | — |
-| MCP stdio server | standard library | — | built in | — |
+| MCP stdio server (HTTP) | standard library | — | built in | — |
+| Browser mode CLI and MCP | Node.js >= 18, standard library only | — | optional | browser runs exit 3 without a bridge |
+| Browser bridge (reference) | `playwright` (npm) | Apache-2.0 | optional | bridge exits 3 with an install hint |
 
 Install the required set:
 
@@ -29,5 +31,10 @@ Enable optional capabilities:
 pip install playwright && playwright install chromium   # JS rendering
 pip install pypdf                                       # PDF text
 ```
+
+Browser mode needs Node.js 18 or newer and a bridge command in
+`WEB_FORAGER_BRIDGE`. The reference bridge in `browser/bridges/` additionally
+needs `npm install playwright`; the core browser CLI and MCP server use only the
+Node standard library.
 
 No GPL or AGPL package is used. See [`THIRD_PARTY_LICENSES.txt`](../THIRD_PARTY_LICENSES.txt).

@@ -1,20 +1,23 @@
 ---
 name: web-forager
-version: 1.0.1
+version: 1.1.0
 description: >
-  Polite, robots-aware web information gathering: search 360/Bing/Sogou,
-  read HTML/PDF/DOCX/XLSX/EPUB/CSV and RSS/Atom, collect public pages from
-  Bilibili, Zhihu, Xiaohongshu, Weibo and other sites, discover sitemaps,
-  chunk long Markdown, cache responses, and surf the web link by link with
-  resumable sessions. Optional scholarly lookups cover arXiv/Crossref/
-  PubMed/DOI. Ships a CLI, an OpenCLI-style --agent envelope and a stdio MCP
-  server. Optional Playwright rendering for JavaScript-heavy pages.
+  Polite, robots-aware web information gathering with two modes. HTTP mode
+  searches 360/Bing/Sogou, reads HTML/PDF/DOCX/XLSX/EPUB/CSV and RSS/Atom,
+  collects public pages from Bilibili, Zhihu, Xiaohongshu, Weibo and other
+  sites, discovers sitemaps, chunks long Markdown, caches responses, and surfs
+  the web link by link with resumable sessions. Browser mode drives a real
+  browser through a bridge for login-state pages, rendered content, danmaku and
+  seven read-only playbooks. Optional scholarly lookups cover
+  arXiv/Crossref/PubMed/DOI. Ships a CLI, an OpenCLI-style --agent envelope and
+  two stdio MCP servers.
 metadata:
-  version: 1.0.1
+  version: 1.1.0
   author: Jiaming Shi
   license: MIT
   entry_point: python run.py
   python_requires: '>=3.10'
+  browser_runtime: node >= 18
 ---
 
 > ## 免责声明（务必阅读）
@@ -31,7 +34,8 @@ and (optional) `playwright` / `pypdf` are used. No GPL/AGPL dependency.
 - **Optional:** playwright (JavaScript rendering), pypdf (PDF text)
 - **Standard-library formats:** DOCX, XLSX, EPUB, CSV, RSS, Atom, sitemap
 - **MCP:** `python mcp_server.py` (stdio JSON-RPC; tools: web_fetch,
-  web_search, web_surf, web_scholar, web_map, web_bilibili, web_clean)
+  web_search, web_surf, web_scholar, web_map, web_bilibili, web_clean) and
+  `node browser/mcp_server.js` (browser_list, browser_run, browser_session)
 
 > **启用 JS 渲染：** 用户需自行运行
 > `pip install playwright && playwright install chromium`。
@@ -123,9 +127,51 @@ python run.py --action bili --mode search --query "Python 教程" --direct-searc
 - The user asks to browse Bilibili: home feed, a specific video, its UP主 and
   statistics, its recommendation list, or a chain of related videos.
 - A Bilibili seed video is supplied and the user wants “相关视频”“刷下去”.
+- The page needs the browser's own session: Zhihu or Xiaohongshu behind a login
+  wall, lazy-loaded comments, or Bilibili danmaku (browser mode, needs a bridge).
+- The user asks to “像人一样点开/滚动/看完” rather than parse a response.
 
-Do **not** use for: login-protected content, paywalled material, personal data,
-CAPTCHA/Cloudflare bypass, or high-concurrency crawling.
+Do **not** use for: login-protected content without an authorised browser
+session, paywalled material, personal data, CAPTCHA/Cloudflare bypass, or
+high-concurrency crawling.
+
+## Browser mode (Node 18+)
+
+The browser layer lives in `browser/`. It drives a real browser through a
+bridge process and records what it sees in the same record shape. It is
+read-only by default: like, coin, favourite, follow, share, comment, danmaku and
+publish are denied unless `--allow-write` is passed after the user authorises
+that single action.
+
+```bash
+# list playbooks and backends
+node browser/run.js --list
+
+# Bilibili feed, one video, episode chain, danmaku
+node browser/run.js --playbook bili-feed --session bili-01 --max-items 8 --agent
+node browser/run.js --playbook bili-video --url "https://www.bilibili.com/video/BV1xx411c7mD"
+node browser/run.js --playbook bili-chain --url "https://www.bilibili.com/video/BV1xx411c7mD"
+node browser/run.js --playbook bili-danmaku --url "https://www.bilibili.com/video/BV1xx411c7mD"
+
+# Zhihu and Xiaohongshu search
+node browser/run.js --playbook zhihu-dig --query "<KEYWORDS>" --agent
+node browser/run.js --playbook xhs-dig --query "<KEYWORDS>" --agent
+
+# plan without a browser
+node browser/run.js --playbook bili-feed --dry-run
+
+# connect a bridge (Playwright reference bridge is optional)
+npm install playwright && npx playwright install chromium
+WEB_FORAGER_BRIDGE="node browser/bridges/playwright-bridge.js" node browser/run.js --playbook bili-feed
+```
+
+Backends are labels only (`--backend iab|extension|cdp`); the bridge declares
+its real capabilities. Without a bridge, a live run exits 3. `zhihu-dig` and
+`xhs-dig` return `login_required` (exit 6) when a platform shows a login wall.
+
+Browser sessions live in `~/.web-forager/browser/sessions/` (override with
+`WEB_FORAGER_BROWSER_HOME`). With `--root <WS>`, records land in
+`<WS>/process/web-forager/browser/` and `<WS>/_broadcast/`.
 
 ## Inputs and outputs
 
@@ -205,21 +251,27 @@ CAPTCHA/Cloudflare bypass, or high-concurrency crawling.
   to a 360+Bing discovery route; `--direct-search` is an explicit, logged
   override for the search page only. No login, cookies, comments or private data.
 
-## MCP server
+## MCP servers
 
 ```bash
-python mcp_server.py
+python mcp_server.py          # HTTP mode
+node browser/mcp_server.js    # browser mode
 ```
 
-Newline-delimited JSON-RPC 2.0 on stdin/stdout; `.mcp.json` registers it for
-Claude Code. Tools: `web_fetch`, `web_search`, `web_surf`, `web_scholar`,
-`web_map`, `web_bilibili`, `web_clean`. Tool failures return `isError: true`
-with `{"ok":false,"error":{...}}` as text; protocol errors use JSON-RPC codes.
+Both speak newline-delimited JSON-RPC 2.0 on stdin/stdout; `.mcp.json`
+registers them as `web-forager` and `web-forager-browser`. HTTP tools:
+`web_fetch`, `web_search`, `web_surf`, `web_scholar`, `web_map`,
+`web_bilibili`, `web_clean`. Browser tools: `browser_list`, `browser_run`,
+`browser_session`. Tool failures return `isError: true` with
+`{"ok":false,"error":{...}}` as text; protocol errors use JSON-RPC codes.
 
 ## Tests
 
 ```bash
 python -m pytest tests -q
+npm run test:browser
 ```
 
-The suite uses a temporary local HTTP server; no public network access needed.
+The Python suite uses a temporary local HTTP server; no public network access
+needed. The browser suite uses a fake backend and a fake bridge that speaks the
+wire protocol, so the CLI runs end to end without a browser.

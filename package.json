@@ -1,14 +1,20 @@
 {
   "name": "web-forager",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "main": "index.js",
+  "scripts": {
+    "test": "python -m pytest",
+    "test:browser": "node --test \"browser/tests/*.test.js\""
+  },
   "files": [
     "index.js",
     "cordis.patch.yml",
     ".dsh-plugin/",
     "run.py",
     "mcp_server.py",
+    "browser/",
     "scripts/",
+    "commands/",
     "SKILL.md",
     "AGENTS.md",
     "manifest.json",
@@ -22,5 +28,6 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
-  }
+  },
+  "description": "Clean-room, robots-aware web information gathering: multi-engine search, HTML/PDF/Office/feed extraction, Bilibili/Zhihu/Xiaohongshu reading, sitemaps and resumable surfing, plus a browser mode with seven read-only playbooks. CLI + two MCP servers."
 }

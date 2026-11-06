@@ -1,8 +1,7 @@
 # web-forager
 
-> **一个干净实现、遵守 robots.txt 的网络信息收集工具，面向智能体与分析者：同时提供 CLI、MCP 服务与 Claude Code 技能。**
->
-> 它能用 360 / Bing / Sogou 搜索，读取 HTML、PDF、DOCX、XLSX、EPUB、CSV 与 RSS/Atom，收集 B 站、知乎、小红书、微博、豆瓣、新闻站点、博客与论坛的公开页面，发现站点地图，把长文切成适合上下文的块，礼貌地缓存响应，并能像人一样沿页面链接自主冲浪、断点续游。可选的学术查询覆盖 arXiv、Crossref、PubMed 与 DOI。每一次访问都先检查 robots.txt，并按站点限速。
+> **一个干净室实现、遵守 robots.txt 的网络信息收集工具，面向智能体与分析者：提供 CLI、两个 MCP 服务与 Claude Code 技能。**>
+> 它有两种模式。**HTTP 模式**用 360 / Bing / Sogou 搜索，读取 HTML、PDF、DOCX、XLSX、EPUB、CSV 与 RSS/Atom，收集 B 站、知乎、小红书、微博、豆瓣、新闻站点、博客与论坛的公开页面，发现站点地图，把长文切成适合上下文的块，礼貌地缓存响应，并能像人一样沿页面链接自主冲浪、断点续游；可选的学术查询覆盖 arXiv、Crossref、PubMed 与 DOI。**浏览器模式**通过可插拔的桥驱动真实浏览器，处理登录态页面、渲染内容与 B 站弹幕，内置七个只读剧本。HTTP 的每一次访问都先检查 robots.txt，并按站点限速。
 
 > ## 免责声明（务必阅读）
 >
@@ -10,7 +9,7 @@
 
 [English](README.md) · **简体中文**
 
-**版本：** 1.0.1 ｜ **CLI 动作：** 6 ｜ **MCP 工具：** 7
+**版本：** 1.1.0 ｜ **CLI 动作：** 6 ｜ **MCP 工具：** 7 ｜ **浏览器剧本：** 7
 
 ---
 
@@ -32,7 +31,9 @@
 
 **合规内建在抓取器里，而不是事后补丁。** robots.txt（RFC 9309 子集）、按站点限速、响应体上限、重定向上限和明确的信息收集 User-Agent 对每个请求生效，搜索、sitemap 与 surf 的每一跳也不例外。
 
-**面向智能体的接口会降级，不会崩溃。** `--agent` 给出稳定的 `{"ok":…}` 信封，`mcp_server.py` 暴露 7 个 MCP 工具，`--chunk-size` 按标题切分长文。缺少 Playwright 返回退出码 6，缺少 `pypdf` 返回退出码 7，站点没有 sitemap 则返回空结果并附说明。
+**面向智能体的接口会降级，不会崩溃。** `--agent` 给出稳定的 `{"ok":…}` 信封，`mcp_server.py` 暴露 7 个 MCP 工具，`browser/mcp_server.js` 再暴露 3 个，`--chunk-size` 按标题切分长文。缺少 Playwright 返回退出码 6，缺少 `pypdf` 返回退出码 7，站点没有 sitemap 则返回空结果并附说明。
+
+**两种模式覆盖网络的两半。** HTTP 模式读取服务器返回的内容：快、可审计、遵守 robots。浏览器模式读取人真正看到的页面：脚本已执行、登录态生效、播放器已挂载。它不内置浏览器，只启动 `WEB_FORAGER_BRIDGE` 指向的命令，并用一套很小的 JSON-RPC 协议与它通信；没有桥时，真实浏览器运行以退出码 3 停下，而不是假装读过页面。两种模式写出同一种 `metadata / markdown / tables / warnings` 记录形状。
 
 ---
 
@@ -63,6 +64,8 @@ flowchart LR
 
 `surf` 只跟随页面里已经存在的 `<a href>` 链接，从不拼猜 URL、提交表单或执行页面 JavaScript。`map` 只读公开发布的 sitemap，可选学术查询调用有文档的 API，而不是抓结果页。
 
+浏览器模式是并排的第二条循环：桥提供页面，`browser/run.js` 读取 DOM 快照，会话判断哪些是新的，剧本决定下一步导航，最后写出捕捉记录。每个观察周期只执行一个会改变状态的动作，写操作默认拒绝。
+
 ---
 
 ## 安装与下载
@@ -88,7 +91,7 @@ claude plugin install web-forager --marketplace https://github.com/JiamingShi-Js
 **Claude Code** —— 在会话内执行（v2.1.275+），先用 URL 添加市场，并锁定发布 tag：
 
 ```text
-/plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git#v1.0.1
+/plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git#v1.1.0
 ```
 
 再安装它列出的条目：
@@ -100,7 +103,7 @@ claude plugin install web-forager --marketplace https://github.com/JiamingShi-Js
 **Codex** —— 把 URL 注册为 Git 市场；`--ref` 锁定发布 tag，HTTPS 换成 SSH 或本地路径同样可用：
 
 ```bash
-codex plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git --ref v1.0.1
+codex plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git --ref v1.1.0
 ```
 
 **Codex** —— 从该市场安装插件：
@@ -112,13 +115,13 @@ codex plugin add web-forager@web-forager-marketplace
 **dsh（DeepSeek Harness）** —— 直接从同一个仓库 URL 安装进指定 profile：
 
 ```bash
-dsh plugin --profile web add github:JiamingShi-JsPhys/web-forager#v1.0.1
+dsh plugin --profile web add github:JiamingShi-JsPhys/web-forager#v1.1.0
 ```
 
 **CodeBuddy** —— 先把 URL 加为 Git 市场：
 
 ```text
-/plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git#v1.0.1
+/plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git#v1.1.0
 ```
 
 再安装它列出的条目：
@@ -191,7 +194,7 @@ pip install playwright && playwright install chromium  # JS 渲染
 pip install pypdf                                      # PDF 文本
 ```
 
-DOCX/XLSX/EPUB/CSV、RSS/Atom、sitemap 解析与 MCP 服务**无需额外依赖**。详见 [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md)。
+DOCX/XLSX/EPUB/CSV、RSS/Atom、sitemap 解析与两个 MCP 服务**无需额外 Python 依赖**。浏览器模式需要 Node.js 18 或更新；浏览器桥由你提供，`browser/bridges/playwright-bridge.js` 另需 `npm install playwright`。详见 [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md)。
 
 ---
 
@@ -211,7 +214,7 @@ DOCX/XLSX/EPUB/CSV、RSS/Atom、sitemap 解析与 MCP 服务**无需额外依赖
 
 ### 插件命令
 
-四个命令把常用动作收进一行：
+五个命令把常用动作收进一行：
 
 | 命令 | 作用 |
 |---|---|
@@ -219,11 +222,56 @@ DOCX/XLSX/EPUB/CSV、RSS/Atom、sitemap 解析与 MCP 服务**无需额外依赖
 | `/web-forager:surf` | 搜索或打开种子 URL，再按相关度跟随页内链接，支持断点续游 |
 | `/web-forager:scholar` | 查询 arXiv、Crossref、PubMed，或解析 DOI |
 | `/web-forager:map` | 从 robots.txt 的 `Sitemap:`、sitemap index 与 `.xml.gz` 发现页面 URL |
+| `/web-forager:browse` | 通过浏览器桥读取渲染页面、登录态站点、B 站弹幕等七类剧本 |
 
 ```text
 /web-forager:fetch https://example.org/article
 /web-forager:scholar 10.1038/nature14539
 ```
+
+### 浏览器模式
+
+浏览器层位于 `browser/`，需要 Node.js 18 或更新。它默认只读：点赞、投币、
+收藏、关注、分享、评论、弹幕与发布一律拒绝，除非用户明确授权某一次动作后
+传入 `--allow-write`。
+
+```bash
+node browser/run.js --list
+node browser/run.js --playbook bili-feed --session bili-01 --max-items 8 --agent
+node browser/run.js --playbook bili-video --url "https://www.bilibili.com/video/BV1xx411c7mD"
+node browser/run.js --playbook bili-chain --url "https://www.bilibili.com/video/BV1xx411c7mD"
+node browser/run.js --playbook bili-danmaku --url "https://www.bilibili.com/video/BV1xx411c7mD"
+node browser/run.js --playbook zhihu-dig --query "强化学习" --agent
+node browser/run.js --playbook xhs-dig --query "城市漫步 攻略" --agent
+node browser/run.js --playbook search-dig --query "强化学习" --agent
+node browser/run.js --playbook bili-feed --dry-run
+```
+
+用 `WEB_FORAGER_BRIDGE` 或 `--bridge` 连接桥；仓库附带的参考桥是可选的：
+
+```bash
+npm install playwright && npx playwright install chromium
+WEB_FORAGER_BRIDGE="node browser/bridges/playwright-bridge.js" node browser/run.js --playbook bili-feed
+```
+
+`WEB_FORAGER_BROWSER_HEADFUL=1` 显示窗口；
+`WEB_FORAGER_BROWSER_PROFILE=/path` 复用持久化配置目录（`extension` 后端的
+登录态正是靠它保留）；`WEB_FORAGER_BROWSER_CDP=http://127.0.0.1:9222` 接管你
+已有的浏览器（`cdp`）。后端名只是标记，真正决定能力的是桥，运行结果会在
+`backend.capabilities` 里如实记录。
+
+| 剧本 | 作用 | 需要 |
+|---|---|---|
+| `bili-feed` | 首页信息流，逐屏捕捉未见卡片 | 无 |
+| `bili-video` | 单个视频与可见评论 | `--url` 或 `--bvid` |
+| `bili-chain` | 跟随“下一话”，并从会话续接链路 | `--url`、`--bvid` 或会话链路 |
+| `bili-danmaku` | 带时间戳的弹幕，取不到时改走 `observe`（实验性） | `--url` 或 `--bvid` |
+| `zhihu-dig` | 搜知乎、排序链接、捕捉最佳未见页面 | `--query` |
+| `xhs-dig` | 搜小红书公开笔记、排序 `/explore` 链接、捕捉一条 | `--query` |
+| `search-dig` | 搜 B 站、排序卡片、打开最佳未见结果 | `--query` |
+
+平台用登录墙代替结果时，`zhihu-dig` 与 `xhs-dig` 会以 `login_required`
+（退出码 6）停下，绝不尝试绕过。
 
 ### MCP 服务
 
@@ -233,16 +281,27 @@ DOCX/XLSX/EPUB/CSV、RSS/Atom、sitemap 解析与 MCP 服务**无需额外依赖
     "web-forager": {
       "command": "python",
       "args": ["/absolute/path/to/web-forager/mcp_server.py"]
+    },
+    "web-forager-browser": {
+      "command": "node",
+      "args": ["/absolute/path/to/web-forager/browser/mcp_server.js"]
     }
   }
 }
 ```
 
-工具：`web_fetch`、`web_search`、`web_surf`、`web_scholar`、`web_map`、`web_bilibili`、`web_clean`。直接测试协议：
+HTTP 工具：`web_fetch`、`web_search`、`web_surf`、`web_scholar`、`web_map`、
+`web_bilibili`、`web_clean`。浏览器工具：`browser_list`、`browser_run`、
+`browser_session`。直接测试协议：
 
 ```bash
 printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
   '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | python mcp_server.py
+```
+
+```bash
+printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+  '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | node browser/mcp_server.js
 ```
 
 ### 工作区输出
@@ -260,6 +319,14 @@ python run.py --action fetch --url "https://example.org/article" --root <WS>
 ```
 
 `material/` 与 `results/` 属于用户与编排器，web-forager 从不写入。
+
+浏览器捕捉遵循同一套规则：
+
+```text
+<WS>/process/web-forager/browser/web-forager-browser_<timestamp>_<slug>.json
+<WS>/process/web-forager/browser/web-forager-browser_<timestamp>_<slug>.md
+<WS>/_broadcast/web-forager-browser_<timestamp>_<slug>.json
+```
 
 ### 需要命令行时
 
@@ -306,7 +373,7 @@ python run.py --action bili --mode feed --max-items 10
 
 ## 环境要求
 
-Python 3.10+。核心运行时：`requests`、`beautifulsoup4`、`trafilatura`。可选：`playwright`（JS 渲染）、`pypdf`（PDF）。`defusedxml` 若已安装则使用，但从不强制依赖——含内部 DTD 子集或任何 ENTITY 声明的 XML 一律拒绝。没有内置任何第三方代码；每个库都保留自己的宽松许可证。不使用任何 GPL/AGPL 依赖。完整的能力-依赖矩阵见 [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md)。
+Python 3.10+。核心运行时：`requests`、`beautifulsoup4`、`trafilatura`。可选：`playwright`（JS 渲染）、`pypdf`（PDF）。`defusedxml` 若已安装则使用，但从不强制依赖——含内部 DTD 子集或任何 ENTITY 声明的 XML 一律拒绝。浏览器模式另需 Node.js 18+ 与一个桥命令；`browser/bridges/playwright-bridge.js` 还需要 npm 安装 `playwright`。没有内置任何第三方代码；每个库都保留自己的宽松许可证。不使用任何 GPL/AGPL 依赖。完整的能力-依赖矩阵见 [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md)。
 
 ---
 
@@ -331,9 +398,16 @@ web-forager/
 ├── package.json / index.js       npm + dsh 打包
 ├── cordis.patch.yml              dsh bundle 补丁
 ├── run.py                        CLI：fetch / clean / bili / surf / scholar / map
-├── mcp_server.py                 MCP stdio 服务（7 个工具）
+├── mcp_server.py                 MCP stdio 服务（7 个 HTTP 工具）
+├── browser/                      浏览器模式（Node 18+）
+│   ├── run.js                    CLI：七个只读剧本
+│   ├── mcp_server.js             MCP stdio 服务（3 个浏览器工具）
+│   ├── lib/                      桥后端、会话、记录、安全门禁、快照
+│   ├── playbooks/                bili-* / zhihu-dig / xhs-dig / search-dig
+│   ├── bridges/                  可选 Playwright 参考桥
+│   └── tests/                    假后端 + 假桥（35 个测试）
 ├── SKILL.md                      Claude Code 技能契约
-├── commands/                     /fetch /surf /scholar /map
+├── commands/                     /fetch /surf /scholar /map /browse
 ├── docs/DEPENDENCIES.md          各能力依赖矩阵
 ├── scripts/
 │   ├── engine.py                 robots、抓取、搜索、缓存、分块、Markdown、surf
@@ -343,7 +417,7 @@ web-forager/
 │   ├── scholar.py                arXiv / Crossref / PubMed / DOI
 │   ├── sitemap.py                sitemap 发现
 │   └── bilibili.py               B 站适配器
-├── tests/                        # 离线 HTTP 夹具（115 个测试）
+├── tests/                        # 离线 HTTP 夹具（119 个测试）
 ├── requirements.txt
 ├── THIRD_PARTY_LICENSES.txt
 ├── CHANGELOG.md
@@ -357,9 +431,10 @@ web-forager/
 
 ```bash
 python -m pytest tests -q
+npm run test:browser
 ```
 
-共 **115 个测试**，全部通过且完全离线。`conftest.py` 会启动一个临时本地 HTTP 服务，提供 robots.txt、文章、PDF/Office 文件、订阅源、sitemap、搜索结果页与多跳 surf 页面。覆盖 robots 拒绝、正文抽取、表格、文档、订阅源、缓存、搜索翻页、分块、MCP、surf 会话、安装器行为、宿主规则与免责声明检查，以及全部退出码。
+共 **119 个 Python 测试**加 **35 个浏览器测试**，全部通过且完全离线。`conftest.py` 会启动一个临时本地 HTTP 服务，提供 robots.txt、文章、PDF/Office 文件、订阅源、sitemap、搜索结果页与多跳 surf 页面。Python 套件覆盖 robots 拒绝、正文抽取、表格、文档、订阅源、缓存、搜索翻页、分块、MCP、surf 会话、安装器行为、宿主规则与免责声明检查，以及全部退出码。浏览器套件使用假后端与说同一套协议的假桥，因此不装浏览器也能端到端跑完 CLI。
 
 ---
 
@@ -371,9 +446,13 @@ python -m pytest tests -q
 - **学术 API 只返回元数据与摘要**：不返回全文；请遵守各平台条款。
 - **`--render auto` 是启发式判断**：可见文字过少加 SPA 标记。复杂站点可能仍需要 `--render always`，而 `--wait-for` / `--scroll` 只在装了 Playwright 时生效。
 - **搜索依赖公开结果页**：可用性随网络变化。搜狗可能弹人机验证，因此默认 `auto` 路由不含它。
-- **B 站只读公开页面**：不登录、不抓评论、不抓字幕、不访问私密列表。
+- **B 站 HTTP 模式只读公开页面**：不登录、不抓评论、不抓字幕、不访问私密列表。
+- **浏览器模式需要桥**：没有 `WEB_FORAGER_BRIDGE`（或 `--bridge`）时，真实运行以退出码 3 返回；参考 Playwright 桥需另外安装 `playwright`。
+- **浏览器模式默认只读**：除非用户明确授权后传入 `--allow-write`，写操作一律拒绝。
+- **弹幕仍是实验性能力**：页面暴露时间戳时直接读 DOM，否则要求桥实现 `observe("danmaku", ms)`。canvas 渲染的文字仍需 OCR。
+- **不绕过登录墙**：`zhihu-dig` 与 `xhs-dig` 会以 `login_required` 停下；请通过桥复用已登录的配置目录。
 - **`surf` 只跟随普通链接**：不点按钮、不执行 JavaScript、不处理登录墙。
-- **robots.txt 不可达即拒绝**：这是 RFC 的保守做法。`--ignore-robots` 仅用于你已获得明确授权的资源。
+- **robots.txt 不可达即拒绝**：这是 RFC 的保守做法。`--ignore-robots` 仅用于你已获得明确授权的资源。浏览器模式不查 robots.txt，改用人工节奏与只读剧本来约束。
 
 ---
 

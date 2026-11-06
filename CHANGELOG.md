@@ -1,5 +1,52 @@
 # Changelog
 
+## 1.1.0 — 2026-11-06
+
+Browser mode joins web-forager. The HTTP toolkit and the browser layer now ship
+as **one plugin, one name and one version**; the former standalone `web-actor`
+product no longer exists.
+
+### Added
+
+- **Browser mode** under `browser/`: a CLI, seven read-only playbooks and an MCP
+  server that drive a real browser through a pluggable bridge.
+- **Playbooks**: `bili-feed`, `bili-video`, `bili-chain`, `bili-danmaku`,
+  `zhihu-dig`, `xhs-dig` and `search-dig`.
+- **Second MCP server**: `browser/mcp_server.js` exposes `browser_list`,
+  `browser_run` and `browser_session`; `.mcp.json` registers both servers.
+- **Optional reference bridge**: `browser/bridges/playwright-bridge.js` needs
+  Playwright installed separately and supports a fresh browser, a persistent
+  profile, a headful window and attaching over CDP.
+- **Browser records**: the same `metadata / markdown / tables / warnings` shape,
+  written to `<WS>/process/web-forager/browser/` and `_broadcast/`.
+- **`/browse` command** for the browser playbooks.
+
+### Changed
+
+- Version 1.1.0 across manifests, `SKILL.md`, CLI and README install tags.
+- The browser layer uses the web-forager name throughout: environment variables
+  are `WEB_FORAGER_BRIDGE`, `WEB_FORAGER_BROWSER_HOME`,
+  `WEB_FORAGER_BROWSER_HEADFUL`, `WEB_FORAGER_BROWSER_PROFILE` and
+  `WEB_FORAGER_BROWSER_CDP`; sessions live in `~/.web-forager/browser/`; record
+  `source` is `web-forager-browser`.
+- The plugin manifest gained a `browser` block listing playbooks, backends and
+  the browser MCP tools.
+
+### Tests
+
+- **119 Python tests** and **35 browser tests**, all offline. The browser suite
+  uses a fake backend plus a fake bridge that speaks the wire protocol, so the
+  CLI runs end to end without a browser.
+
+### Notes
+
+- Browser mode is read-only by default. Like, coin, favourite, follow, share,
+  comment, danmaku and publish are denied unless `--allow-write` is passed after
+  explicit authorisation.
+- Without `WEB_FORAGER_BRIDGE` (or `--bridge`) a live browser run exits 3.
+- Danmaku and `observe("danmaku", ms)` are experimental; canvas-rendered text
+  still needs OCR.
+
 ## 1.0.1 — 2026-11-06
 
 Patch release for the MCP server on Windows hosts.

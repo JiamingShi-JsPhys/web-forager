@@ -1,4 +1,4 @@
-# web-forager — agent operating rules (v1.0.1)
+# web-forager — agent operating rules (v1.1.0)
 
 web-forager is a clean-room, robots-aware public-web intelligence layer. It
 searches, fetches, extracts and browses the open web to collect public information; it
@@ -23,6 +23,18 @@ the MCP server and `SKILL.md` share one engine and one robots/cache pipeline.
 - `python run.py --action bili --mode feed|video|search|related|surf`
 - `python mcp_server.py` — stdio JSON-RPC with the same seven capabilities
 - `.dsh-plugin/index.js` — non-Python harness entry (`apply(ctx)`)
+
+## Browser mode entry points (Node 18+)
+
+- `node browser/run.js --list` — list the seven browser playbooks
+- `node browser/run.js --playbook bili-feed|bili-video|bili-chain|bili-danmaku`
+- `node browser/run.js --playbook zhihu-dig|xhs-dig|search-dig --query <TEXT>`
+- `node browser/run.js --playbook bili-feed --dry-run` — plan without a browser
+- `node browser/mcp_server.js` — browser_list / browser_run / browser_session
+
+The browser needs a bridge command (`WEB_FORAGER_BRIDGE` or `--bridge`).
+`browser/bridges/playwright-bridge.js` is optional and needs `playwright`
+installed separately. Without a bridge a live run exits 3.
 
 Add `--agent` to any CLI action for a machine-readable
 `{"ok":true,"data":...}` / `{"ok":false,"error":{code,message,hint}}` envelope.
