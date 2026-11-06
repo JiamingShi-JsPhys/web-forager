@@ -6,7 +6,7 @@
 
 > ## Disclaimer (read this first)
 >
-> **This plugin is for academic research only. Users must comply with the Terms of Service of target websites and applicable copyright law. It must not be used to harvest personal data or to conduct malicious concurrent attacks.**
+> **This plugin is for learning and information gathering only. Users must comply with the Terms of Service of target websites and applicable copyright law. It must not be used to harvest personal data or to conduct malicious concurrent attacks.**
 
 **English** · [简体中文](README_zh.md)
 

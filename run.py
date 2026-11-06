@@ -33,7 +33,7 @@ Global
 MCP
     ``python mcp_server.py``  stdio JSON-RPC server exposing the same engine.
 
-本插件仅供学术研究使用。使用者需遵守目标网站的 Terms of Service 及相关版权法律。
+本插件仅供学习与信息收集使用。使用者需遵守目标网站的 Terms of Service 及相关版权法律。
 禁止用于抓取个人隐私数据或进行恶意并发攻击。
 """
 

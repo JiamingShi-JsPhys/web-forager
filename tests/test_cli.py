@@ -106,7 +106,7 @@ def test_fetch_requires_exactly_one_source() -> None:
 def test_help_contains_disclaimer() -> None:
     result = run_cli("--help")
     assert result.returncode == 0
-    assert "本插件仅供学术研究使用" in result.stdout
+    assert "本插件仅供学习与信息收集使用" in result.stdout
 
 
 def test_version_flag() -> None:

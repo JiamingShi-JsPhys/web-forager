@@ -9,7 +9,7 @@ web-forager is a clean-room, robots-aware public-web intelligence layer. It
 searches, fetches, extracts and browses the open web to collect public information; it
 does not bypass logins, paywalls or anti-bot systems.
 
-> **免责声明**：本插件仅供学术研究使用。使用者需遵守目标网站的 Terms of Service 及相关版权法律。禁止用于抓取个人隐私数据或进行恶意并发攻击。
+> **免责声明**：本插件仅供学习与信息收集使用。使用者需遵守目标网站的 Terms of Service 及相关版权法律。禁止用于抓取个人隐私数据或进行恶意并发攻击。
 
 ## Install as one plugin
 
