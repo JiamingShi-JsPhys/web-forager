@@ -1,6 +1,6 @@
 # web-forager
 
-> **一个干净室实现、遵守 robots.txt 的网络信息收集工具，面向智能体与分析者：同时提供 CLI、MCP 服务与 Claude Code 技能。**
+> **一个干净实现、遵守 robots.txt 的网络信息收集工具，面向智能体与分析者：同时提供 CLI、MCP 服务与 Claude Code 技能。**
 >
 > 它能用 360 / Bing / Sogou 搜索，读取 HTML、PDF、DOCX、XLSX、EPUB、CSV 与 RSS/Atom，收集 B 站、知乎、小红书、微博、豆瓣、新闻站点、博客与论坛的公开页面，发现站点地图，把长文切成适合上下文的块，礼貌地缓存响应，并能像人一样沿页面链接自主冲浪、断点续游。可选的学术查询覆盖 arXiv、Crossref、PubMed 与 DOI。每一次访问都先检查 robots.txt，并按站点限速。
 
