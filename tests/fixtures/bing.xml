@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Bing results for robots.txt</title>
+    <item>
+      <title>Robots Exclusion Protocol</title>
+      <link>https://example.org/a</link>
+      <description>Alpha snippet about robots.txt</description>
+    </item>
+    <item>
+      <title>Ethical crawling</title>
+      <link>https://example.org/b</link>
+      <description>Beta snippet</description>
+    </item>
+    <item>
+      <title>Duplicate</title>
+      <link>https://example.org/a</link>
+      <description>Duplicate URL must be removed</description>
+    </item>
+  </channel>
+</rss>

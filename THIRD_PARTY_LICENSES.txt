@@ -1,0 +1,25 @@
+web-forager bundles or depends on the following third-party packages.
+No GPL or AGPL licensed dependency is used.
+
+requests
+  License: Apache License 2.0
+  Copyright: Kenneth Reitz and contributors
+
+beautifulsoup4
+  License: MIT
+  Copyright: Leonard Richardson
+
+trafilatura
+  License: Apache License 2.0
+  Copyright: Adrien Barbaresi
+  (transitive dependencies: lxml - BSD, courlan - Apache-2.0,
+   htmldate - Apache-2.0, jusText - MIT, charset-normalizer - MIT)
+
+playwright (optional)
+  License: Apache License 2.0
+  Copyright: Microsoft Corporation
+
+The search-result and robots.txt parsers, the Markdown converter, the
+metadata extractor and the CLI in this plugin are original code written for
+this project. They are not derived from Crawlee, Scrapy, or any other
+crawling framework.

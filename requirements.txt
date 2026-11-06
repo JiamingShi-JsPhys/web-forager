@@ -1,0 +1,8 @@
+# Core runtime (all Apache-2.0 or MIT; no GPL/AGPL anywhere)
+requests>=2.31
+beautifulsoup4>=4.12
+trafilatura>=1.6
+
+# Optional: JavaScript rendering (Apache-2.0).
+# Install the package, then: python -m playwright install chromium
+# playwright>=1.40

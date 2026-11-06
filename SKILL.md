@@ -1,0 +1,145 @@
+---
+name: web-forager
+version: 0.1.0
+description: >
+  Polite, robots-aware web fetching for academic research: fetch a URL or
+  search keywords, extract article text, tables and bibliographic metadata,
+  convert HTML into clean Markdown, and browse Bilibili feeds, videos and
+  recommendation chains. Optional Playwright rendering for JavaScript-heavy
+  pages.
+metadata:
+  version: 0.1.0
+  author: Jiaming Shi
+  license: MIT
+  entry_point: python run.py
+  python_requires: '>=3.10'
+---
+
+> ## ⚠️ 免责声明（务必阅读）
+>
+> **本插件仅供学术研究使用。使用者需遵守目标网站的 Terms of Service 及相关版权法律。禁止用于抓取个人隐私数据或进行恶意并发攻击。**
+
+# web-forager
+
+Clean-room implementation. Only `requests`, `beautifulsoup4`, `trafilatura`
+and (optional) `playwright` are used. No GPL/AGPL dependency.
+
+- **Stage:** `domain_extensions` · **Sandbox:** no
+- **Dependencies:** requests, beautifulsoup4, trafilatura
+- **Optional:** playwright (JavaScript rendering)
+
+> **启用 JS 渲染：** 用户需自行运行
+> `pip install playwright && playwright install chromium`。
+> 未安装时 `--render auto` 会跳过渲染并在 `warnings` 中说明；`--render always`
+> 会以**退出码 6**优雅报错，不会抛 Python Traceback。
+
+## Quick Execution
+
+Run these exact forms from the plugin root — do not read the source tree:
+
+```bash
+# one URL
+python run.py --action fetch --url "<URL>" --out result.json
+
+# keyword search, then fetch the top results
+python run.py --action fetch --query "<KEYWORDS>" --num-results 8 --max-pages 3
+
+# local HTML -> Markdown
+python run.py --action clean --input page.html --out page.md --format markdown
+
+# HTML on stdin
+cat page.html | python run.py --action clean --format markdown
+
+# write into a Chelate four-zone workspace
+python run.py --action fetch --url "<URL>" --root <WS>
+# -> <WS>/process/web-forager/*.json|*.md + <WS>/_broadcast/web-forager_*.json
+```
+
+### Bilibili (刷 B 站)
+
+```bash
+# home feed
+python run.py --action bili --mode feed --num-results 12 --max-pages 1
+
+# one video (title, UP, stats, parts, description, recommendations)
+python run.py --action bili --mode video --url BV1xx411c7mD
+
+# recommendation list / relationship-chain browsing
+python run.py --action bili --mode related --url BV1xx411c7mD --num-results 10
+python run.py --action bili --mode surf --url BV1xx411c7mD --depth 2 --max-pages 3
+
+# keyword search (Bing route by default; Bilibili's own search page blocks agents)
+python run.py --action bili --mode search --query "Python 教程"
+python run.py --action bili --mode search --query "Python 教程" --direct-search
+```
+
+## When to use
+
+- A paper, report or documentation page must be read as clean Markdown.
+- A keyword query must be resolved to sources and the top pages harvested.
+- Bibliographic metadata (authors, journal, DOI, abstract) must be captured.
+- Tables on a page must be turned into structured rows or Markdown tables.
+- A JavaScript-rendered page needs a real browser (requires Playwright).
+- The user asks to browse Bilibili: home feed, a specific video, its UP主 and
+  statistics, its recommendation list, or a chain of related videos.
+- A Bilibili seed video is supplied and the user wants “相关视频”“刷下去”.
+
+Do **not** use for: login-protected content, paywalled material, personal data,
+CAPTCHA/Cloudflare bypass, or high-concurrency crawling.
+
+## Inputs and outputs
+
+| Action | Input | Output |
+|---|---|---|
+| `fetch --url` | one http(s) URL | JSON with `metadata`, `markdown`, `tables`, `warnings` |
+| `fetch --query` | keywords + engine | JSON with `search_results` and one record per fetched page |
+| `clean --input` | local HTML file | JSON or Markdown |
+| `clean --url` | http(s) URL | JSON or Markdown |
+| `clean` (stdin) | HTML bytes | JSON or Markdown |
+| `bili --mode feed` | home page | feed cards + optionally fetched videos |
+| `bili --mode video` | BV id or video URL | one normalised video record |
+| `bili --mode related` | BV id or video URL | recommendation list |
+| `bili --mode surf` | BV id or keyword | relationship-chain traversal |
+| `bili --mode search` | keyword | search results + fetched videos |
+
+## Key options
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--render auto\|never\|always` | `auto` | Playwright rendering policy |
+| `--delay` | `1.0` | per-origin politeness delay (seconds) |
+| `--timeout` | `20` | request timeout (seconds) |
+| `--max-chars` | `20000` | Markdown truncation (`0` = unlimited) |
+| `--no-tables` | off | skip table extraction |
+| `--keep-links` | off | keep hyperlinks in Markdown |
+| `--images` | off | keep image references |
+| `--format json\|markdown` | `json` | stdout format |
+| `--out FILE` | stdout | write result to a file (wins over `--root`) |
+| `--root DIR` | off | Chelate workspace root; writes `process/web-forager/` and `_broadcast/` |
+| `--mode auto\|feed\|video\|search\|related\|surf` | `auto` | Bilibili mode |
+| `--depth` | `1` | Bilibili relationship-chain depth |
+| `--direct-search` | off | explicit override for `search.bilibili.com` only |
+| `--ignore-robots` | off | **dangerous**; only for authorised resources |
+
+## Compliance guardrails
+
+- robots.txt is fetched once per origin and cached for one hour; matching uses
+  longest-rule-wins with `*` and `$` support (RFC 9309 subset).
+- `401/403/5xx` or an unreachable robots.txt → conservative deny.
+- Every request carries an explicit academic User-Agent; override it with
+  `--user-agent` so you are contactable.
+- Per-origin rate limiting; no concurrency fan-out.
+- Max 5 redirects, 8 MB response cap, http/https only.
+- Exit code `3` means robots.txt denied the request — respect it.
+- Bilibili: `api.bilibili.com` and `search.bilibili.com` disallow all generic
+  agents, so only `www.bilibili.com/` and `/video/BV…` are read. Search defaults
+  to a Bing discovery route; `--direct-search` is an explicit, logged override
+  for the search page only. No login, cookies, comments or private data.
+
+## Tests
+
+```bash
+python -m pytest tests -q
+```
+
+The suite uses a temporary local HTTP server; no public network access needed.

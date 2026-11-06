@@ -1,0 +1,14 @@
+{
+  "name": "web-forager-marketplace",
+  "owner": {
+    "name": "JiamingShi-JsPhys"
+  },
+  "plugins": [
+    {
+      "name": "web-forager",
+      "source": "./",
+      "version": "0.1.0",
+      "description": "Clean-room, robots-aware web fetching and HTML-to-Markdown cleaning for academic research, with a Bilibili feed/video/recommendation adapter."
+    }
+  ]
+}

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Polite Crawling for Research | Example Journal</title>
+  <link rel="canonical" href="https://example.org/articles/polite-crawling">
+  <meta name="citation_title" content="Polite Crawling for Research">
+  <meta name="citation_author" content="Ada Lovelace">
+  <meta name="citation_author" content="Alan Turing">
+  <meta name="citation_journal_title" content="Journal of Ethical Web Research">
+  <meta name="citation_publication_date" content="2025-03-14">
+  <meta name="citation_doi" content="10.1234/jewr.2025.0042">
+  <meta name="citation_volume" content="12">
+  <meta name="citation_issue" content="3">
+  <meta name="citation_firstpage" content="101">
+  <meta name="citation_lastpage" content="118">
+  <meta name="citation_abstract" content="We study polite crawling practices across academic web research projects.">
+  <meta name="citation_keywords" content="web crawling; robots.txt; research ethics">
+  <meta property="og:site_name" content="Example Journal">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://example.org/articles/polite-crawling">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "ScholarlyArticle",
+    "headline": "Polite Crawling for Research",
+    "author": [{"@type": "Person", "name": "Ada Lovelace"}],
+    "datePublished": "2025-03-14",
+    "description": "JSON-LD abstract for the article."
+  }
+  </script>
+</head>
+<body>
+<nav>Home | About | Contact</nav>
+<article>
+  <h1>Polite Crawling for Research</h1>
+  <p>Researchers should identify themselves with a descriptive User-Agent and honour robots.txt before every request.</p>
+
+  <h2>Method</h2>
+  <p>We surveyed <a href="/ethics">ethical crawling practices</a> across 120 academic projects.</p>
+  <ul>
+    <li>Respect crawl-delay.</li>
+    <li>Cache aggressively.</li>
+  </ul>
+
+  <h2>Observed rates</h2>
+  <table>
+    <caption>Observed request rates</caption>
+    <tr><th>Project</th><th>Requests/min</th><th>robots.txt</th></tr>
+    <tr><td>Alpha</td><td>6</td><td>yes</td></tr>
+    <tr><td>Beta</td><td>42</td><td>no</td></tr>
+  </table>
+
+  <blockquote>Politeness is a research method, not an afterthought.</blockquote>
+
+  <h2>Example</h2>
+  <pre><code>curl -A "WebForager/0.1" https://example.org/</code></pre>
+</article>
+<footer>© Example Journal</footer>
+</body>
+</html>

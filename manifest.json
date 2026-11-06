@@ -1,0 +1,37 @@
+{
+  "name": "web-forager",
+  "version": "0.1.0",
+  "stage": "domain_extensions",
+  "input_types": [
+    "url",
+    "html",
+    "keyword",
+    "bvid"
+  ],
+  "output_type": "markdown",
+  "output_types": [
+    "markdown",
+    "json"
+  ],
+  "dependencies": [
+    "requests",
+    "beautifulsoup4",
+    "trafilatura"
+  ],
+  "optional_dependencies": [
+    "playwright"
+  ],
+  "sandbox_required": false,
+  "entrypoint": "run.py",
+  "actions": [
+    "fetch",
+    "clean",
+    "bili"
+  ],
+  "license": "MIT",
+  "author": {
+    "name": "Jiaming Shi"
+  },
+  "description": "Clean-room, robots-aware web fetching for academic research. Fetch a URL or search keywords, extract article text, tables and bibliographic metadata, convert HTML to Markdown, and browse Bilibili (feed, video, related, surf) through pages allowed by robots.txt. Optional Playwright rendering for JavaScript-heavy pages.",
+  "disclaimer": "本插件仅供学术研究使用。使用者需遵守目标网站的 Terms of Service 及相关版权法律。禁止用于抓取个人隐私数据或进行恶意并发攻击。"
+}
