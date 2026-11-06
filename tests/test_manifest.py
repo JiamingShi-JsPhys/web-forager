@@ -11,6 +11,11 @@ DISCLAIMER = (
     "本插件仅供学术研究使用。使用者需遵守目标网站的 Terms of Service 及相关版权法律。"
     "禁止用于抓取个人隐私数据或进行恶意并发攻击。"
 )
+DISCLAIMER_EN = (
+    "This plugin is for academic research only. Users must comply with the Terms of Service "
+    "of target websites and applicable copyright law. It must not be used to harvest personal "
+    "data or to conduct malicious concurrent attacks."
+)
 ALLOWED_DEPENDENCIES = {"requests", "beautifulsoup4", "trafilatura", "playwright", "pypdf"}
 
 
@@ -34,12 +39,32 @@ def test_readme_and_skill_show_the_disclaimer() -> None:
     readme = (PLUGIN_ROOT / "README.md").read_text(encoding="utf-8")
     readme_zh = (PLUGIN_ROOT / "README_zh.md").read_text(encoding="utf-8")
     skill = (PLUGIN_ROOT / "SKILL.md").read_text(encoding="utf-8")
-    for text in (readme, readme_zh):
+    # The English README is English-only, so it carries the translated notice.
+    assert DISCLAIMER_EN in readme
+    assert readme.index(DISCLAIMER_EN) < 1200
+    for text in (readme_zh, skill):
         assert DISCLAIMER in text
         assert text.index(DISCLAIMER) < 1200
-    assert DISCLAIMER in skill
-    # It must be near the top, not buried at the end.
-    assert skill.index(DISCLAIMER) < 1200
+
+
+def test_english_readme_has_no_chinese_text() -> None:
+    readme = (PLUGIN_ROOT / "README.md").read_text(encoding="utf-8")
+    # The language switcher keeps the target language's own name.
+    body = readme.replace("[\u7b80\u4f53\u4e2d\u6587](README_zh.md)", "")
+    assert not re.search("[\u4e00-\u9fff]", body)
+
+
+def test_docs_use_no_emoji() -> None:
+    emoji = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\uFE0F\u2B00-\u2BFF]")
+    for relative in (
+        "README.md",
+        "README_zh.md",
+        "SKILL.md",
+        "AGENTS.md",
+        "CHANGELOG.md",
+    ):
+        text = (PLUGIN_ROOT / relative).read_text(encoding="utf-8")
+        assert not emoji.search(text), relative
 
 
 def test_agent_contract_and_host_rules_show_the_disclaimer() -> None:

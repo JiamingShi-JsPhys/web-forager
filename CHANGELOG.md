@@ -2,8 +2,8 @@
 
 ## 1.0.0 — 2026-11-06
 
-First stable release. The plugin is now a complete public-web intelligence
-layer for research agents, with both a CLI and an MCP server.
+First stable release. web-forager is a complete public-web intelligence layer
+for research agents, with a CLI, an MCP server and a bilingual skill contract.
 
 ### Added
 
@@ -30,18 +30,17 @@ layer for research agents, with both a CLI and an MCP server.
   expansion limits.
 - **Multi-host adaptation**: `AGENTS.md` is the generic agent contract, with
   matching rule files for Cursor, Windsurf, Cline, Continue, Roo Code and
-  GitHub Copilot. `install.py` writes project- or user-scoped rules in one run
-  and skips drifted files unless `--force` is given.
+  GitHub Copilot. `install.py` writes project- or user-scoped rules in one run.
 - **Packaging**: root `package.json`, `index.js` and `cordis.patch.yml` cover
   npm and dsh; `commands/fetch.md`, `surf.md`, `scholar.md` and `map.md` expose
   the actions as plugin commands.
-- **Documentation**: `README.md` (English) and `README_zh.md` (Chinese) now
-  mirror each other, covering plugin installation, the rule-file installer,
-  quick starts, the action/exit-code table, the repository layout and known
-  limitations. `docs/DEPENDENCIES.md` states the per-capability dependency and
-  licence matrix.
-- **Tests**: 113 tests, including installer coverage and host-rule/disclaimer
-  checks.
+- **Bilingual documentation**: `README.md` (English) and `README_zh.md`
+  (Chinese) mirror each other section for section, with the same three-method
+  installation guide, quick start, requirements, repository tree, test summary,
+  limitations, issue rules, trademark notice and licence. All documents are
+  emoji-free.
+- **Tests**: 115 tests, including installer coverage and host-rule and
+  disclaimer checks.
 
 ### Fixed
 
@@ -55,9 +54,12 @@ layer for research agents, with both a CLI and an MCP server.
 
 ### Changed
 
-- Version bumped to 1.0.0 across all platform manifests.
-- README, SKILL and manifests document the new actions, MCP tools, exit codes
-  and optional dependencies.
+- Version 1.0.0 across all platform manifests, `SKILL.md` and the CLI
+  User-Agent.
+- `install.py --global` appends a marked block to `~/.claude/CLAUDE.md` instead
+  of replacing the user's global instructions.
+- Documentation presents web-forager as an independent plugin; the `--root`
+  output is described as a four-zone workspace without third-party branding.
 
 ## 0.2.0 — 2026-11-06
 
@@ -70,5 +72,5 @@ layer for research agents, with both a CLI and an MCP server.
 
 - Initial clean-room fetcher: robots.txt, polite rate limiting, HTML → Markdown,
   metadata, tables, optional Playwright and a Bilibili adapter.
-- Standalone packaging for Claude Code, Codex, CodeBuddy and DSH, plus Chelate
-  `--root` workspace integration.
+- Standalone packaging for Claude Code, Codex, CodeBuddy and DSH, plus
+  four-zone `--root` workspace integration.

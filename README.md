@@ -4,9 +4,9 @@
 >
 > It searches 360 / Bing / Sogou, reads HTML, PDF, DOCX, XLSX, EPUB, CSV and RSS/Atom, queries arXiv, Crossref and PubMed, discovers sitemaps, splits long pages into context-sized chunks, caches responses politely, browses Bilibili public pages, and can surf the open web link by link with resumable sessions. Every page is checked against robots.txt and rate-limited per origin.
 
-> ## ⚠️ 免责声明（务必阅读）
+> ## Disclaimer (read this first)
 >
-> **本插件仅供学术研究使用。使用者需遵守目标网站的 Terms of Service 及相关版权法律。禁止用于抓取个人隐私数据或进行恶意并发攻击。**
+> **This plugin is for academic research only. Users must comply with the Terms of Service of target websites and applicable copyright law. It must not be used to harvest personal data or to conduct malicious concurrent attacks.**
 
 **English** · [简体中文](README_zh.md)
 
@@ -14,9 +14,9 @@
 
 ---
 
-## Security & open-source statement
+## Security & Open Source Statement
 
-> This plugin is an auxiliary research tool. It is not a peer-reviewed academic project. The core engine is an original clean-room implementation: no source code is copied from Crawlee, Scrapy, Colly, Katana or any other crawling framework.
+> **Disclaimer**: This plugin is an auxiliary research tool developed to automate web retrieval for academic work. It is not a peer-reviewed academic project. The core engine is an original clean-room implementation: no source code is copied from Crawlee, Scrapy, Colly, Katana or any other crawling framework.
 >
 > The tool **never bypasses a login, CAPTCHA, Cloudflare challenge or paywall**. It does not collect personal data and does not run concurrent request floods. `robots.txt` is checked before every target page, every request carries a contactable academic User-Agent, and the default rate is one request per second per origin.
 >
@@ -26,16 +26,19 @@
 
 ## Why web-forager?
 
-Most agent stacks have either a search API with no reading pipeline, or a scraper with no compliance layer. web-forager puts both behind one engine:
+In the current agent ecosystem, tools solve one half of the problem: a search API returns links with no reading pipeline, or a scraper reads pages with no compliance layer. Neither supplies a stable contract between retrieval and the agent that consumes it. web-forager supplies both, in one engine.
 
-- **One retrieval contract for many sources.** HTML, PDF, Office documents, ebooks, feeds, sitemaps, scholarly APIs and Bilibili all return the same JSON shape: `metadata`, `markdown`, `tables`, `warnings`.
-- **Compliance is not an afterthought.** robots.txt (RFC 9309 subset), per-origin rate limiting, response-size caps, redirect limits and an explicit academic User-Agent are built into the fetcher, not bolted on.
-- **Agent-first interfaces.** `--agent` gives a stable `{"ok":…}` envelope; `mcp_server.py` exposes the same capabilities as seven MCP tools; `--chunk-size` splits long pages by heading so a context window never has to swallow a whole book.
-- **Graceful degradation.** Missing Playwright returns exit code 6, missing `pypdf` returns exit code 7, a missing sitemap returns an empty result with a note. None of them produces a Python traceback.
+**One engine serves every source.** HTML, PDF, Office documents, ebooks, feeds, sitemaps, scholarly APIs and Bilibili all return the same JSON shape: `metadata`, `markdown`, `tables` and `warnings`. A caller does not need a different code path per content type.
+
+**Compliance is built into the fetcher, not bolted on.** robots.txt (RFC 9309 subset), per-origin rate limiting, response-size caps, redirect limits and an explicit academic User-Agent apply to every request, including search, sitemap and surf hops.
+
+**Agent-first interfaces degrade instead of crashing.** `--agent` yields a stable `{"ok":…}` envelope, `mcp_server.py` exposes seven MCP tools, and `--chunk-size` splits long pages by heading. Missing Playwright returns exit code 6, missing `pypdf` returns exit code 7, and a site without a sitemap returns an empty result with a note.
 
 ---
 
 ## How a run flows
+
+Every request enters through the same `HttpFetcher`: robots policy, cache, retry/backoff, per-origin rate limiter and size cap. The chosen action then routes the payload to the matching extractor, and all extractors converge on the same Markdown plus metadata record.
 
 ```mermaid
 flowchart LR
@@ -58,7 +61,7 @@ flowchart LR
     MD --> OUT["JSON / --agent envelope / --root workspace / MCP"]
 ```
 
-Every network action goes through the same `HttpFetcher`: robots policy, cache, retry/backoff, rate limiter, size cap. `surf` only follows `<a href>` links that already exist in the page; it never constructs guessed URLs, submits forms or executes page JavaScript.
+`surf` only follows `<a href>` links that already exist in the page; it never constructs guessed URLs, submits forms or executes page JavaScript. `map` reads only published sitemaps, and the scholarly actions call documented APIs instead of scraping result pages.
 
 ---
 
@@ -194,34 +197,35 @@ DOCX/XLSX/EPUB/CSV, RSS/Atom, sitemap parsing and the MCP server need **no extra
 
 ## Quick start
 
-### As a Claude Code skill
+Install the plugin, then stay in the chat box: type `/` and pick a skill or a command. No shell, no absolute path — the folder you are working in is the workspace.
+
+### Skills
+
+The skill is registered under the `web-forager` namespace, so it is one `/` away:
 
 ```text
 /web-forager:web-forager  read https://example.org/article as Markdown
 ```
 
-or invoke the actions directly:
+Say what you want after the name; the skill picks the action and returns Markdown, metadata, tables and warnings. A page that robots.txt disallows is refused, not fetched.
 
-```bash
-python run.py --action fetch --url "https://example.org/article" --chunk-size 4000
-python run.py --action fetch --query "robots.txt 学术爬虫" --num-results 8 --max-pages 3
-python run.py --action clean --input paper.pdf --format markdown
-python run.py --action scholar --source doi --query "10.1038/nature14539"
-python run.py --action map --url "https://example.org" --limit 500
-python run.py --action surf --query "Python 教程" --depth 1 --max-pages 5 --session py-01
-python run.py --action bili --mode video --url BV1xx411c7mD
-```
+### Commands
 
-### As a plugin command
+Four commands put the common actions behind a single line:
+
+| Command | Does |
+|---|---|
+| `/web-forager:fetch` | Fetches one URL, or searches a keyword and reads the results |
+| `/web-forager:surf` | Searches or opens a seed URL, then follows ranked in-page links with a resumable session |
+| `/web-forager:scholar` | Queries arXiv, Crossref or PubMed, or resolves a DOI |
+| `/web-forager:map` | Discovers page URLs from robots.txt Sitemap lines, sitemap indexes and `.xml.gz` files |
 
 ```text
-/web-forager:fetch    one URL or keyword query
-/web-forager:surf     link-by-link exploration
-/web-forager:scholar  arXiv / Crossref / PubMed / DOI
-/web-forager:map      sitemap discovery
+/web-forager:fetch https://example.org/article
+/web-forager:scholar 10.1038/nature14539
 ```
 
-### As an MCP server
+### MCP server
 
 ```json
 {
@@ -241,7 +245,7 @@ printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
   '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | python mcp_server.py
 ```
 
-### As a four-zone workspace producer
+### Workspace output
 
 ```bash
 python run.py --action fetch --url "https://example.org/article" --root <WS>
@@ -256,6 +260,20 @@ Writes only:
 ```
 
 `material/` and `results/` belong to the user and the orchestrator; web-forager never writes there.
+
+### When you need the CLI
+
+The same operations run headlessly for scripts and CI:
+
+```bash
+python run.py --action fetch --url "https://example.org/article" --chunk-size 4000
+python run.py --action fetch --query "robots.txt academic crawler" --num-results 8 --max-pages 3
+python run.py --action clean --input paper.pdf --format markdown
+python run.py --action scholar --source doi --query "10.1038/nature14539"
+python run.py --action map --url "https://example.org" --limit 500
+python run.py --action surf --query "Python tutorial" --depth 1 --max-pages 5 --session py-01
+python run.py --action bili --mode video --url BV1xx411c7mD
+```
 
 ---
 
@@ -287,7 +305,7 @@ Writes only:
 
 ## Requirements
 
-Python 3.10+. Core runtime: `requests`, `beautifulsoup4`, `trafilatura`. Optional: `playwright` (JS rendering), `pypdf` (PDF). `defusedxml` is used when already installed but is never required — XML with an internal DTD subset or any ENTITY declaration is rejected regardless. No GPL/AGPL dependency is used.
+Python 3.10+. Core runtime: `requests`, `beautifulsoup4`, `trafilatura`. Optional: `playwright` (JS rendering), `pypdf` (PDF). `defusedxml` is used when already installed but is never required — XML with an internal DTD subset or any ENTITY declaration is rejected regardless. No third-party code is vendored; every library stays under its own permissive licence. No GPL/AGPL dependency is used. The full per-capability matrix lives in [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md).
 
 ---
 
@@ -324,7 +342,7 @@ web-forager/
 │   ├── scholar.py                arXiv / Crossref / PubMed / DOI
 │   ├── sitemap.py                sitemap discovery
 │   └── bilibili.py               Bilibili adapter
-├── tests/                        local HTTP fixtures; no public network needed
+├── tests/                        # offline HTTP fixtures (115 tests)
 ├── requirements.txt
 ├── THIRD_PARTY_LICENSES.txt
 ├── CHANGELOG.md
@@ -340,28 +358,44 @@ web-forager/
 python -m pytest tests -q
 ```
 
-The suite is offline: `conftest.py` starts a temporary local HTTP server serving robots.txt, articles, PDF/Office files, feeds, sitemaps, search-result pages and multi-hop surf pages. It covers robots denial, extraction, tables, documents, feeds, cache, search pagination, chunking, MCP, surf sessions and exit codes. Current count: **113 tests**.
+That is **115 tests**, all passing and fully offline. `conftest.py` starts a temporary local HTTP server serving robots.txt, articles, PDF/Office files, feeds, sitemaps, search-result pages and multi-hop surf pages. The suite covers robots denial, extraction, tables, documents, feeds, cache, search pagination, chunking, MCP, surf sessions, installer behaviour, host-rule and disclaimer checks, and every exit code.
 
 ---
 
 ## Known limitations
 
-- PDF extraction reads the text layer only; scanned PDFs need OCR, which this plugin does not do.
-- Scholarly APIs return metadata and abstracts, not full papers; respect each platform's terms.
-- `--render auto` is a heuristic (short visible text + SPA markers); complex sites may need `--render always`, and `--wait-for` / `--scroll` only work when Playwright is installed.
-- Search results come from public result pages; availability depends on the network. Sogou may show a human-verification page and is excluded from the default `auto` route.
-- Bilibili reads public pages only: no login, comments, subtitles or private lists.
-- `surf` follows ordinary links only; it does not click buttons, execute JavaScript or handle login walls.
-- When robots.txt is unreachable, the conservative RFC behaviour is to deny. `--ignore-robots` is only for resources you are explicitly authorised to access.
+Honest edge cases — read before relying on any output:
+
+- **PDF extraction reads the text layer only**: scanned PDFs need OCR, which this plugin does not do.
+- **Scholarly APIs return metadata and abstracts**: they do not return full papers; respect each platform's terms.
+- **`--render auto` is a heuristic**: short visible text plus SPA markers. Complex sites may need `--render always`, and `--wait-for` / `--scroll` only work when Playwright is installed.
+- **Search depends on public result pages**: availability varies by network. Sogou may show a human-verification page and is excluded from the default `auto` route.
+- **Bilibili reads public pages only**: no login, comments, subtitles or private lists.
+- **`surf` follows ordinary links only**: it does not click buttons, execute JavaScript or handle login walls.
+- **robots.txt unreachable means deny**: that is the conservative RFC behaviour. `--ignore-robots` is only for resources you are explicitly authorised to access.
 
 ---
 
 ## Report issues
 
-Regular bugs and feature requests: open an issue with reproduction steps, expected/actual behaviour, OS and Python version. Security reports should not go to a public issue tracker; contact the maintainer privately.
+**Regular bugs / feature requests**: file them on the repository's [Issues](https://github.com/JiamingShi-JsPhys/web-forager/issues) page. Include reproduction steps, expected behaviour, actual behaviour, and the environment (operating system, Python version).
+
+**Security vulnerabilities (this category only)**: do **not** use the public Issues page. Email `jiamingshi_git@outlook.com` instead.
+
+- **Subject**: must carry the prefix `report_web-forager:` plus a short summary.
+  - Example: `report_web-forager: path traversal can read outside the target folder`
+- **Body**: must include detailed reproduction steps and the environment.
+
+*Contributors who file clear, reproducible issues or pull requests will be credited in the next release's notes.*
+
+## Trademarks
+
+"Bilibili", "arXiv", "Crossref", "PubMed", "Claude", "Codex", "CodeBuddy" and "DeepSeek" are trademarks or registered trademarks of their respective owners. web-forager is an independent, third-party tool. It is not affiliated with, endorsed by, or sponsored by any of them. All requests go to public pages or documented APIs; users are responsible for complying with each platform's terms.
 
 ---
 
 ## License
 
-MIT © 2026 Jiaming Shi. See [LICENSE](LICENSE) and [THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt).
+MIT. See [LICENSE](LICENSE) and [THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt).
+
+**Author & Maintainer**: Jiaming Shi (Westlake University)
