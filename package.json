@@ -1,0 +1,26 @@
+{
+  "name": "web-forager",
+  "version": "1.0.0",
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    ".dsh-plugin/",
+    "run.py",
+    "mcp_server.py",
+    "scripts/",
+    "SKILL.md",
+    "AGENTS.md",
+    "manifest.json",
+    "README.md",
+    "README_zh.md",
+    "CHANGELOG.md",
+    "THIRD_PARTY_LICENSES.txt",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

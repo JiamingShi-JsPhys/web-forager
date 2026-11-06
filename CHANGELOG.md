@@ -28,6 +28,20 @@ layer for research agents, with both a CLI and an MCP server.
 - **Security**: all XML goes through a DOCTYPE/ENTITY guard that uses
   `defusedxml` when available; Office ZIP containers have entry-count and
   expansion limits.
+- **Multi-host adaptation**: `AGENTS.md` is the generic agent contract, with
+  matching rule files for Cursor, Windsurf, Cline, Continue, Roo Code and
+  GitHub Copilot. `install.py` writes project- or user-scoped rules in one run
+  and skips drifted files unless `--force` is given.
+- **Packaging**: root `package.json`, `index.js` and `cordis.patch.yml` cover
+  npm and dsh; `commands/fetch.md`, `surf.md`, `scholar.md` and `map.md` expose
+  the actions as plugin commands.
+- **Documentation**: `README.md` (English) and `README_zh.md` (Chinese) now
+  mirror each other, covering plugin installation, the rule-file installer,
+  quick starts, the action/exit-code table, the repository layout and known
+  limitations. `docs/DEPENDENCIES.md` states the per-capability dependency and
+  licence matrix.
+- **Tests**: 113 tests, including installer coverage and host-rule/disclaimer
+  checks.
 
 ### Fixed
 

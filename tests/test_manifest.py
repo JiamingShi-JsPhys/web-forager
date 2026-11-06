@@ -32,12 +32,29 @@ def test_mit_license_file() -> None:
 
 def test_readme_and_skill_show_the_disclaimer() -> None:
     readme = (PLUGIN_ROOT / "README.md").read_text(encoding="utf-8")
+    readme_zh = (PLUGIN_ROOT / "README_zh.md").read_text(encoding="utf-8")
     skill = (PLUGIN_ROOT / "SKILL.md").read_text(encoding="utf-8")
-    assert DISCLAIMER in readme
+    for text in (readme, readme_zh):
+        assert DISCLAIMER in text
+        assert text.index(DISCLAIMER) < 1200
     assert DISCLAIMER in skill
     # It must be near the top, not buried at the end.
-    assert readme.index(DISCLAIMER) < 1200
     assert skill.index(DISCLAIMER) < 1200
+
+
+def test_agent_contract_and_host_rules_show_the_disclaimer() -> None:
+    for relative in (
+        "AGENTS.md",
+        ".cursor/rules/web-forager.mdc",
+        ".windsurf/rules/web-forager.md",
+        ".clinerules/web-forager.md",
+        ".continue/rules/web-forager.md",
+        ".roo/rules/web-forager.md",
+        ".github/copilot-instructions.md",
+    ):
+        text = (PLUGIN_ROOT / relative).read_text(encoding="utf-8")
+        assert DISCLAIMER in text, relative
+        assert "robots.txt" in text, relative
 
 
 def test_skill_frontmatter() -> None:
@@ -91,7 +108,24 @@ def test_required_files_exist() -> None:
         "scripts/bilibili.py",
         "mcp_server.py",
         ".mcp.json",
+        "AGENTS.md",
+        "install.py",
+        "package.json",
+        "index.js",
+        "cordis.patch.yml",
+        "commands/fetch.md",
+        "commands/surf.md",
+        "commands/scholar.md",
+        "commands/map.md",
+        "docs/DEPENDENCIES.md",
+        ".cursor/rules/web-forager.mdc",
+        ".windsurf/rules/web-forager.md",
+        ".clinerules/web-forager.md",
+        ".continue/rules/web-forager.md",
+        ".roo/rules/web-forager.md",
+        ".github/copilot-instructions.md",
         "README.md",
+        "README_zh.md",
         "SKILL.md",
         "CHANGELOG.md",
         "LICENSE",
@@ -102,6 +136,7 @@ def test_required_files_exist() -> None:
         "tests/test_search_pdf_surf.py",
         "tests/test_v1_features.py",
         "tests/test_cli.py",
+        "tests/test_install.py",
     ):
         assert (PLUGIN_ROOT / relative).is_file(), relative
 
@@ -148,9 +183,27 @@ def test_docs_document_playwright_and_workspace() -> None:
         assert "退出码 6" in text or "exit code 6" in text
 
 
-def test_readme_covers_standalone_and_chelate_integration() -> None:
+def test_readme_covers_installation_and_workspace_output() -> None:
     readme = (PLUGIN_ROOT / "README.md").read_text(encoding="utf-8")
-    assert "独立安装" in readme
-    assert "chelate-shell" in readme
-    assert "process/web-forager" in readme
-    assert "_broadcast" in readme
+    readme_zh = (PLUGIN_ROOT / "README_zh.md").read_text(encoding="utf-8")
+    for text in (readme, readme_zh):
+        assert "install.py" in text
+        assert "AGENTS.md" in text
+        assert "process/web-forager" in text
+        assert "_broadcast" in text
+        assert "workflow" in text or "mermaid" in text
+        assert "Chelate" not in text
+        assert "https://github.com/JiamingShi-JsPhys/web-forager" in text
+    assert "### Method 1: install from the plugin marketplace by URL" in readme
+    assert "### 方法一：从插件市场用 URL 安装" in readme_zh
+    assert "[English](README.md)" in readme_zh
+    assert "[简体中文](README_zh.md)" in readme
+
+
+def test_package_entry_is_consistent_with_manifest() -> None:
+    manifest = json.loads((PLUGIN_ROOT / "manifest.json").read_text(encoding="utf-8"))
+    package = json.loads((PLUGIN_ROOT / "package.json").read_text(encoding="utf-8"))
+    assert package["name"] == manifest["name"]
+    assert package["version"] == manifest["version"]
+    assert (PLUGIN_ROOT / package["main"]).is_file()
+    assert "cordis.patch.yml" in package.get("dsh", {}).get("bundle", {}).get("patch", "")

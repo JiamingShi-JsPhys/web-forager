@@ -80,7 +80,7 @@ python run.py --action surf --url "<URL>" --depth 2 --follow all --max-pages 10
 # agent envelope: {"ok":true,"data":...} or {"ok":false,"error":{code,message,hint}}
 python run.py --action surf --query "<KEYWORDS>" --agent
 
-# write into a Chelate four-zone workspace
+# write into a four-zone workspace
 python run.py --action fetch --url "<URL>" --root <WS>
 # -> <WS>/process/web-forager/*.json|*.md + <WS>/_broadcast/web-forager_*.json
 ```
@@ -171,7 +171,7 @@ CAPTCHA/Cloudflare bypass, or high-concurrency crawling.
 | `--format json\|markdown` | `json` | stdout format |
 | `--agent` | off | OpenCLI-style `{ok,data}` / `{ok,error}` envelope |
 | `--out FILE` | stdout | write result to a file (wins over `--root`) |
-| `--root DIR` | off | Chelate workspace root; writes `process/web-forager/` and `_broadcast/` |
+| `--root DIR` | off | four-zone workspace root; writes `process/web-forager/` and `_broadcast/` |
 | `--mode auto\|feed\|video\|search\|related\|surf` | `auto` | Bilibili mode |
 | `--depth` | `1` | Bilibili chain / web surf depth |
 | `--follow same-site\|all\|none` | `same-site` | surf link policy |
