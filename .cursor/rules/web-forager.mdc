@@ -6,7 +6,7 @@ alwaysApply: true
 # web-forager — agent operating rules (v1.0.0)
 
 web-forager is a clean-room, robots-aware public-web intelligence layer. It
-searches, fetches, extracts and browses the open web for academic research; it
+searches, fetches, extracts and browses the open web to collect public information; it
 does not bypass logins, paywalls or anti-bot systems.
 
 > **免责声明**：本插件仅供学术研究使用。使用者需遵守目标网站的 Terms of Service 及相关版权法律。禁止用于抓取个人隐私数据或进行恶意并发攻击。
@@ -50,7 +50,7 @@ Add `--agent` to any CLI action for a machine-readable
 - **robots.txt is always checked** before a page is opened. `--ignore-robots`
   is only for resources you are explicitly authorised to access.
 - **One request at a time per origin**, default 1 second apart; no concurrency
-  fan-out, including surf, sitemap and scholarly API calls.
+  fan-out, including surf, sitemap and optional scholarly API calls.
 - **Do not bypass** logins, CAPTCHAs, Cloudflare challenges or paywalls; do not
   collect personal data.
 - **Workspace discipline**: with `--root`, write only to

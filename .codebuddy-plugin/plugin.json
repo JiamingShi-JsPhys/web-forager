@@ -1,7 +1,7 @@
 {
   "name": "web-forager",
   "version": "1.0.0",
-  "description": "Clean-room, robots-aware web intelligence: multi-engine search, HTML/PDF/Office/feed extraction, scholarly APIs, sitemaps, resumable agent surfing, Bilibili browsing, CLI + MCP.",
+  "description": "Clean-room, robots-aware web information gathering: multi-engine search, HTML/PDF/Office/feed extraction, Bilibili/Zhihu/Xiaohongshu reading, sitemaps, resumable agent surfing, CLI + MCP.",
   "author": {
     "name": "Jiaming Shi"
   },

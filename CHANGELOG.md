@@ -3,7 +3,7 @@
 ## 1.0.0 — 2026-11-06
 
 First stable release. web-forager is a complete public-web intelligence layer
-for research agents, with a CLI, an MCP server and a bilingual skill contract.
+for agents and analysts, with a CLI, an MCP server and a bilingual skill contract.
 
 ### Added
 

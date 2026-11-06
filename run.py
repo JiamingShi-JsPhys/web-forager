@@ -67,8 +67,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="web-forager",
         description=(
-            "Polite, robots-aware web fetching and HTML-to-Markdown cleaning "
-            "for academic research."
+            "Polite, robots-aware web information gathering and "
+            "HTML-to-Markdown cleaning for public pages."
+
         ),
         epilog=engine.DISCLAIMER,
         formatter_class=argparse.RawDescriptionHelpFormatter,

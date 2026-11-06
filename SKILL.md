@@ -2,11 +2,12 @@
 name: web-forager
 version: 1.0.0
 description: >
-  Polite, robots-aware web intelligence for academic research: search
-  360/Bing/Sogou, read HTML/PDF/DOCX/XLSX/EPUB/CSV and RSS/Atom, query
-  arXiv/Crossref/PubMed/DOI, discover sitemaps, chunk long Markdown, cache
-  responses, browse Bilibili, and surf the web link by link with resumable
-  sessions. Ships a CLI, an OpenCLI-style --agent envelope and a stdio MCP
+  Polite, robots-aware web information gathering: search 360/Bing/Sogou,
+  read HTML/PDF/DOCX/XLSX/EPUB/CSV and RSS/Atom, collect public pages from
+  Bilibili, Zhihu, Xiaohongshu, Weibo and other sites, discover sitemaps,
+  chunk long Markdown, cache responses, and surf the web link by link with
+  resumable sessions. Optional scholarly lookups cover arXiv/Crossref/
+  PubMed/DOI. Ships a CLI, an OpenCLI-style --agent envelope and a stdio MCP
   server. Optional Playwright rendering for JavaScript-heavy pages.
 metadata:
   version: 1.0.0
@@ -74,7 +75,7 @@ python run.py --action map --url "https://example.org" --limit 500
 python run.py --action fetch --url "<URL>" --chunk-size 4000 --cache
 
 # surf: search or open a page, then follow ranked links like a human
-python run.py --action surf --query "<KEYWORDS>" --depth 1 --max-pages 5 --session research-01
+python run.py --action surf --query "<KEYWORDS>" --depth 1 --max-pages 5 --session info-01
 python run.py --action surf --url "<URL>" --depth 2 --follow all --max-pages 10
 
 # agent envelope: {"ok":true,"data":...} or {"ok":false,"error":{code,message,hint}}
@@ -184,7 +185,7 @@ CAPTCHA/Cloudflare bypass, or high-concurrency crawling.
 - robots.txt is fetched once per origin and cached for one hour; matching uses
   longest-rule-wins with `*` and `$` support (RFC 9309 subset).
 - `401/403/5xx` or an unreachable robots.txt → conservative deny.
-- Every request carries an explicit academic User-Agent; override it with
+- Every request carries an explicit information-gathering User-Agent; override it with
   `--user-agent` so you are contactable.
 - Per-origin rate limiting; no concurrency fan-out.
 - Max 5 redirects, 8 MB response cap, http/https only.

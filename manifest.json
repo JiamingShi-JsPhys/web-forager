@@ -58,6 +58,6 @@
   "author": {
     "name": "Jiaming Shi"
   },
-  "description": "Clean-room, robots-aware web intelligence for academic research. Search 360/Bing/Sogou, fetch HTML/PDF/DOCX/XLSX/EPUB/CSV and RSS/Atom, extract metadata and tables, discover sitemaps, query arXiv/Crossref/PubMed/DOI, stream Markdown chunks, cache politely, and let an agent surf the web or Bilibili with resumable sessions. Ships a CLI, an OpenCLI-style --agent envelope and a stdio MCP server. Optional Playwright rendering.",
+  "description": "Clean-room, robots-aware web information gathering for agents and analysts. Search 360/Bing/Sogou, read HTML/PDF/DOCX/XLSX/EPUB/CSV and RSS/Atom, collect public pages from Bilibili, Zhihu, Xiaohongshu, Weibo, Douban, news sites and blogs, extract metadata and tables, discover sitemaps, cache politely, and surf with resumable sessions. Optional scholarly lookups cover arXiv/Crossref/PubMed/DOI. Ships a CLI, an --agent envelope and a stdio MCP server. Optional Playwright rendering.",
   "disclaimer": "本插件仅供学术研究使用。使用者需遵守目标网站的 Terms of Service 及相关版权法律。禁止用于抓取个人隐私数据或进行恶意并发攻击。"
 }

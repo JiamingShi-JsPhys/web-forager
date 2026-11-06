@@ -20,7 +20,7 @@ Compliance
 ----------
 * robots.txt is always consulted before fetching a target page (RFC 9309
   matching: longest rule wins, ``*`` wildcard, ``$`` end anchor, UA groups).
-* Every request carries an explicit academic-research User-Agent.
+* Every request carries an explicit information-gathering User-Agent.
 * Requests are rate-limited per host; the default delay is one second.
 """
 
@@ -47,8 +47,8 @@ from bs4.element import NavigableString, Tag
 __version__ = "1.0.0"
 
 DEFAULT_USER_AGENT = (
-    "WebForager/1.0 (Academic Research; +https://example.org/web-forager; "
-    "contact: research@example.org)"
+    "WebForager/1.0 (Information Gathering; +https://example.org/web-forager; "
+    "contact: web-forager@example.org)"
 )
 
 DISCLAIMER = (

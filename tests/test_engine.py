@@ -232,8 +232,8 @@ def test_disclaimer_text_is_exact() -> None:
     assert engine.DISCLAIMER == expected
 
 
-def test_default_user_agent_is_academic_and_identifiable() -> None:
+def test_default_user_agent_is_identifiable() -> None:
     agent = engine.DEFAULT_USER_AGENT
     assert agent.startswith("WebForager/")
-    assert "Academic Research" in agent
+    assert "Information Gathering" in agent
     assert "contact:" in agent

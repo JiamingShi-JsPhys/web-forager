@@ -16,7 +16,7 @@ JavaScript, and every hop is re-checked against robots.txt.
 ## Usage
 
 ```bash
-python run.py --action surf --query "<KEYWORDS>" --depth 1 --max-pages 5 --session research-01 --agent
+python run.py --action surf --query "<KEYWORDS>" --depth 1 --max-pages 5 --session info-01 --agent
 python run.py --action surf --url "<URL>" --depth 2 --follow all --max-pages 10
 ```
 
