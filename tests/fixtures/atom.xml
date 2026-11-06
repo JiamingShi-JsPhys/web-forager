@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Web Research Atom</title>
+  <subtitle>Atom feed for tests.</subtitle>
+  <link href="https://example.org/atom/"/>
+  <entry>
+    <title>Chunking long pages</title>
+    <link href="https://example.org/atom/chunking" rel="alternate"/>
+    <published>2025-02-05T10:00:00Z</published>
+    <updated>2025-02-05T12:00:00Z</updated>
+    <author><name>Grace Hopper</name></author>
+    <summary>How to split Markdown for context windows.</summary>
+    <category term="context"/>
+  </entry>
+</feed>

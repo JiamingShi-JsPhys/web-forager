@@ -1,2 +1,5 @@
 # Keep binary fixtures byte-exact on Windows checkouts.
 *.pdf -text
+*.docx -text
+*.xlsx -text
+*.epub -text

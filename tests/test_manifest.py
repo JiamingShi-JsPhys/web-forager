@@ -17,9 +17,9 @@ ALLOWED_DEPENDENCIES = {"requests", "beautifulsoup4", "trafilatura", "playwright
 def test_manifest_is_complete() -> None:
     manifest = json.loads((PLUGIN_ROOT / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["name"] == "web-forager"
-    assert manifest["version"] == "0.2.0"
+    assert manifest["version"] == "1.0.0"
     assert manifest["license"] == "MIT"
-    assert set(manifest["actions"]) == {"fetch", "clean", "bili", "surf"}
+    assert set(manifest["actions"]) == {"fetch", "clean", "bili", "surf", "scholar", "map"}
     assert (PLUGIN_ROOT / manifest["entrypoint"]).is_file()
     assert manifest["disclaimer"] == DISCLAIMER
 
@@ -84,15 +84,23 @@ def test_required_files_exist() -> None:
         "run.py",
         "scripts/engine.py",
         "scripts/pdf.py",
+        "scripts/documents.py",
+        "scripts/feeds.py",
+        "scripts/scholar.py",
+        "scripts/sitemap.py",
         "scripts/bilibili.py",
+        "mcp_server.py",
+        ".mcp.json",
         "README.md",
         "SKILL.md",
+        "CHANGELOG.md",
         "LICENSE",
         "THIRD_PARTY_LICENSES.txt",
         "tests/test_engine.py",
         "tests/test_bilibili.py",
         "tests/test_fetch.py",
         "tests/test_search_pdf_surf.py",
+        "tests/test_v1_features.py",
         "tests/test_cli.py",
     ):
         assert (PLUGIN_ROOT / relative).is_file(), relative
@@ -102,7 +110,7 @@ def test_multi_platform_manifests() -> None:
     for folder in (".claude-plugin", ".codex-plugin", ".codebuddy-plugin", ".dsh-plugin"):
         data = json.loads((PLUGIN_ROOT / folder / "plugin.json").read_text(encoding="utf-8"))
         assert data["name"] == "web-forager"
-        assert data["version"] == "0.2.0"
+        assert data["version"] == "1.0.0"
 
     for folder in (".claude-plugin", ".codex-plugin", ".codebuddy-plugin"):
         market = json.loads((PLUGIN_ROOT / folder / "marketplace.json").read_text(encoding="utf-8"))
@@ -110,6 +118,23 @@ def test_multi_platform_manifests() -> None:
         assert market["plugins"][0]["source"] == "./"
 
     assert "web-forager" in (PLUGIN_ROOT / ".dsh-plugin" / "index.js").read_text(encoding="utf-8")
+
+
+def test_mcp_registration() -> None:
+    manifest = json.loads((PLUGIN_ROOT / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["mcp"]["entrypoint"] == "mcp_server.py"
+    config = json.loads((PLUGIN_ROOT / ".mcp.json").read_text(encoding="utf-8"))
+    server = config["mcpServers"]["web-forager"]
+    assert server["args"][0].endswith("/mcp_server.py")
+    assert set(manifest["mcp"]["tools"]) == {
+        "web_fetch",
+        "web_search",
+        "web_surf",
+        "web_scholar",
+        "web_map",
+        "web_bilibili",
+        "web_clean",
+    }
 
 
 def test_docs_document_playwright_and_workspace() -> None:

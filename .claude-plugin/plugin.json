@@ -1,7 +1,7 @@
 {
   "name": "web-forager",
-  "version": "0.2.0",
-  "description": "Clean-room, robots-aware web fetching and HTML-to-Markdown cleaning for academic research, with a Bilibili feed/video/recommendation adapter.",
+  "version": "1.0.0",
+  "description": "Clean-room, robots-aware web intelligence: multi-engine search, HTML/PDF/Office/feed extraction, scholarly APIs, sitemaps, resumable agent surfing, Bilibili browsing, CLI + MCP.",
   "author": {
     "name": "Jiaming Shi"
   },

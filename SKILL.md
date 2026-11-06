@@ -1,16 +1,15 @@
 ---
 name: web-forager
-version: 0.2.0
+version: 1.0.0
 description: >
-  Polite, robots-aware web fetching for academic research: fetch a URL or
-  search keywords through 360/Bing/Sogou, extract article text, tables,
-  bibliographic metadata and PDF text, convert HTML into clean Markdown,
-  browse Bilibili feeds, videos and recommendation chains, and surf the web
-  link by link like a person with resumable sessions. Emits an OpenCLI-style
-  agent envelope with --agent. Optional Playwright rendering for
-  JavaScript-heavy pages.
+  Polite, robots-aware web intelligence for academic research: search
+  360/Bing/Sogou, read HTML/PDF/DOCX/XLSX/EPUB/CSV and RSS/Atom, query
+  arXiv/Crossref/PubMed/DOI, discover sitemaps, chunk long Markdown, cache
+  responses, browse Bilibili, and surf the web link by link with resumable
+  sessions. Ships a CLI, an OpenCLI-style --agent envelope and a stdio MCP
+  server. Optional Playwright rendering for JavaScript-heavy pages.
 metadata:
-  version: 0.2.0
+  version: 1.0.0
   author: Jiaming Shi
   license: MIT
   entry_point: python run.py
@@ -29,6 +28,9 @@ and (optional) `playwright` / `pypdf` are used. No GPL/AGPL dependency.
 - **Stage:** `domain_extensions` · **Sandbox:** no
 - **Dependencies:** requests, beautifulsoup4, trafilatura
 - **Optional:** playwright (JavaScript rendering), pypdf (PDF text)
+- **Standard-library formats:** DOCX, XLSX, EPUB, CSV, RSS, Atom, sitemap
+- **MCP:** `python mcp_server.py` (stdio JSON-RPC; tools: web_fetch,
+  web_search, web_surf, web_scholar, web_map, web_bilibili, web_clean)
 
 > **启用 JS 渲染：** 用户需自行运行
 > `pip install playwright && playwright install chromium`。
@@ -50,14 +52,26 @@ python run.py --action fetch --url "<URL>" --out result.json
 python run.py --action fetch --query "<KEYWORDS>" --num-results 8 --max-pages 3
 python run.py --action fetch --query "<KEYWORDS>" --engine all
 
-# local HTML -> Markdown
+# local HTML / Office / EPUB / CSV -> Markdown
 python run.py --action clean --input page.html --out page.md --format markdown
-
-# local PDF -> Markdown (needs: pip install pypdf)
-python run.py --action clean --input paper.pdf --format markdown
+python run.py --action clean --input paper.pdf --format markdown   # needs pypdf
+python run.py --action clean --input report.docx --format markdown
+python run.py --action clean --input data.xlsx --format markdown
 
 # HTML on stdin
 cat page.html | python run.py --action clean --format markdown
+
+# scholarly APIs (normalised bibliographic records)
+python run.py --action scholar --source arxiv --query "<TOPIC>" --num-results 10
+python run.py --action scholar --source crossref --query "<TOPIC>"
+python run.py --action scholar --source pubmed --query "<TOPIC>" --num-results 5
+python run.py --action scholar --source doi --query "10.1038/nature14539"
+
+# sitemap discovery
+python run.py --action map --url "https://example.org" --limit 500
+
+# long-page chunks and polite cache
+python run.py --action fetch --url "<URL>" --chunk-size 4000 --cache
 
 # surf: search or open a page, then follow ranked links like a human
 python run.py --action surf --query "<KEYWORDS>" --depth 1 --max-pages 5 --session research-01
@@ -94,6 +108,11 @@ python run.py --action bili --mode search --query "Python 教程" --direct-searc
 - A paper, report or documentation page must be read as clean Markdown.
 - A keyword query must be resolved to sources and the top pages harvested.
 - A PDF must be turned into text and document metadata (needs `pypdf`).
+- A DOCX/XLSX/EPUB/CSV file or an RSS/Atom feed must become Markdown.
+- A paper must be found through arXiv/Crossref/PubMed or resolved from a DOI.
+- A site's page inventory must come from robots.txt/sitemap discovery.
+- A long page must be split into heading-aware chunks for a context window.
+- Repeated fetches should reuse a polite on-disk cache.
 - Bibliographic metadata (authors, journal, DOI, abstract) must be captured.
 - Tables on a page must be turned into structured rows or Markdown tables.
 - A JavaScript-rendered page needs a real browser (requires Playwright).
@@ -113,11 +132,13 @@ CAPTCHA/Cloudflare bypass, or high-concurrency crawling.
 |---|---|---|
 | `fetch --url` | one http(s) URL | JSON with `metadata`, `markdown`, `tables`, `warnings` |
 | `fetch --query` | keywords + engine | JSON with `search_results` and one record per fetched page |
-| `clean --input` | local HTML or PDF file | JSON or Markdown |
-| `clean --url` | http(s) URL (HTML or PDF) | JSON or Markdown |
-| `clean` (stdin) | HTML or PDF bytes | JSON or Markdown |
+| `clean --input` | local HTML/PDF/DOCX/XLSX/EPUB/CSV file | JSON or Markdown |
+| `clean --url` | http(s) URL (any supported type) | JSON or Markdown |
+| `clean` (stdin) | HTML/PDF/Office bytes | JSON or Markdown |
 | `surf --query` | keywords | search results + BFS page trail + visited URLs |
 | `surf --url` | one seed URL | BFS page trail + visited URLs |
+| `scholar --source` | arxiv/crossref/pubmed/doi + query | normalised record list |
+| `map --url` | site, sitemap or robots.txt URL | URL inventory + sitemap sources |
 | `bili --mode feed` | home page | feed cards + optionally fetched videos |
 | `bili --mode video` | BV id or video URL | one normalised video record |
 | `bili --mode related` | BV id or video URL | recommendation list |
@@ -129,10 +150,21 @@ CAPTCHA/Cloudflare bypass, or high-concurrency crawling.
 | Option | Default | Meaning |
 |---|---|---|
 | `--engine auto\|all\|360\|bing\|sogou\|duckduckgo` | `auto` | search backend; auto=360+Bing, all adds Sogou |
+| `--search-pages N` | `1` | result pages read per engine |
+| `--source arxiv\|crossref\|pubmed\|doi` | `arxiv` | scholarly source |
+| `--sort relevance\|submittedDate\|lastUpdatedDate` | `relevance` | arXiv sort |
+| `--limit N` | `500` | map: maximum URLs |
+| `--max-sitemaps N` | `5` | map: sitemap files to read |
 | `--render auto\|never\|always` | `auto` | Playwright rendering policy |
+| `--wait-for SELECTOR` | off | Playwright: wait for a CSS selector |
+| `--scroll N` | `0` | Playwright: wheel-scroll N times |
 | `--delay` | `1.0` | per-origin politeness delay (seconds) |
 | `--timeout` | `20` | request timeout (seconds) |
 | `--max-chars` | `20000` | Markdown truncation (`0` = unlimited) |
+| `--chunk-size N` | `0` | emit heading-aware `chunks` of about N chars |
+| `--cache` | off | reuse `~/.web-forager/cache` |
+| `--cache-ttl N` | `3600` | cache lifetime (seconds) |
+| `--cache-dir DIR` | user dir | custom cache directory |
 | `--no-tables` | off | skip table extraction |
 | `--keep-links` | off | keep hyperlinks in Markdown |
 | `--images` | off | keep image references |
@@ -158,6 +190,12 @@ CAPTCHA/Cloudflare bypass, or high-concurrency crawling.
 - Max 5 redirects, 8 MB response cap, http/https only.
 - Exit code `3` means robots.txt denied the request — respect it.
 - PDF text extraction requires `pypdf`; without it, exit code `7` is returned.
+- DOCX/XLSX/EPUB archives are capped by entry count and uncompressed size;
+  XML is parsed with defusedxml when available, and DOCTYPE internal subsets /
+  ENTITY declarations are always rejected.
+- Scholarly APIs (arXiv/Crossref/PubMed) are official query endpoints and are
+  rate-limited; sitemap/robots discovery files are read without a per-URL robots
+  check, but every page later opened is still checked.
 - `surf` follows only links already present in the page, never constructs URLs,
   never submits forms and never runs page JavaScript; every hop is re-checked
   against robots.txt and the per-origin rate limiter.
@@ -165,6 +203,17 @@ CAPTCHA/Cloudflare bypass, or high-concurrency crawling.
   agents, so only `www.bilibili.com/` and `/video/BV…` are read. Search defaults
   to a 360+Bing discovery route; `--direct-search` is an explicit, logged
   override for the search page only. No login, cookies, comments or private data.
+
+## MCP server
+
+```bash
+python mcp_server.py
+```
+
+Newline-delimited JSON-RPC 2.0 on stdin/stdout; `.mcp.json` registers it for
+Claude Code. Tools: `web_fetch`, `web_search`, `web_surf`, `web_scholar`,
+`web_map`, `web_bilibili`, `web_clean`. Tool failures return `isError: true`
+with `{"ok":false,"error":{...}}` as text; protocol errors use JSON-RPC codes.
 
 ## Tests
 

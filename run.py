@@ -8,9 +8,9 @@ fetch
     ``--query TEXT`` search (360+Bing by default), then fetch the top results
 
 clean
-    ``--input page.html``  clean a local HTML/PDF file
-    ``--url URL``          fetch a page (HTML or PDF) and clean it
-    (no input)             read HTML/PDF from stdin
+    ``--input file``       clean a local HTML/PDF/DOCX/XLSX/EPUB/CSV file
+    ``--url URL``          fetch a page/document and clean it
+    (no input)             read HTML/PDF/document bytes from stdin
 
 bili
     ``--url BV...`` / ``--query TEXT`` / neither  Bilibili video, search or feed
@@ -19,9 +19,19 @@ surf
     ``--url URL`` or ``--query TEXT``  open/search, then follow ranked links
     ``--depth N --follow same-site|all|none --session NAME``
 
+scholar
+    ``--source arxiv|crossref|pubmed|doi --query TEXT``  bibliographic records
+
+map
+    ``--url SITE``         discover page URLs from robots.txt / sitemaps
+
 Global
     ``--engine auto|all|360|bing|sogou|duckduckgo``
+    ``--cache --chunk-size N --search-pages N``
     ``--agent``  OpenCLI-style ``{ok,data}`` / ``{ok,error}`` envelope for agents
+
+MCP
+    ``python mcp_server.py``  stdio JSON-RPC server exposing the same engine.
 
 本插件仅供学术研究使用。使用者需遵守目标网站的 Terms of Service 及相关版权法律。
 禁止用于抓取个人隐私数据或进行恶意并发攻击。
@@ -40,7 +50,7 @@ _PLUGIN_ROOT = Path(__file__).resolve().parent
 if str(_PLUGIN_ROOT) not in sys.path:
     sys.path.insert(0, str(_PLUGIN_ROOT))
 
-from scripts import bilibili, engine, pdf as pdf_mod  # noqa: E402
+from scripts import bilibili, documents, engine, pdf as pdf_mod, scholar, sitemap  # noqa: E402
 
 
 def _reconfigure_stdio() -> None:
@@ -63,10 +73,29 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=engine.DISCLAIMER,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--action", required=True, choices=["fetch", "clean", "bili", "surf"], help="operation to run")
-    parser.add_argument("--url", help="target URL, or a Bilibili BV/av id (fetch/clean/bili/surf)")
-    parser.add_argument("--query", help="keyword query (fetch/bili/surf)")
-    parser.add_argument("--input", dest="input_path", help="local HTML/PDF file (clean)")
+    parser.add_argument(
+        "--action",
+        required=True,
+        choices=["fetch", "clean", "bili", "surf", "scholar", "map"],
+        help="operation to run",
+    )
+    parser.add_argument("--url", help="target URL, or a Bilibili BV/av id (fetch/clean/bili/surf/map)")
+    parser.add_argument("--query", help="keyword query (fetch/bili/surf/scholar)")
+    parser.add_argument("--input", dest="input_path", help="local HTML/PDF/DOCX/XLSX/EPUB/CSV file (clean)")
+    parser.add_argument(
+        "--source",
+        choices=list(scholar.SCHOLAR_SOURCES),
+        default="arxiv",
+        help="scholarly source for --action scholar (default: arxiv)",
+    )
+    parser.add_argument(
+        "--sort",
+        choices=["relevance", "submittedDate", "lastUpdatedDate"],
+        default="relevance",
+        help="arXiv sort order (default: relevance)",
+    )
+    parser.add_argument("--limit", type=int, default=500, help="map: maximum URLs to return (default: 500)")
+    parser.add_argument("--max-sitemaps", type=int, default=5, help="map: sitemap files to read (default: 5)")
     parser.add_argument(
         "--engine",
         choices=list(engine.SEARCH_ENGINES),
@@ -75,6 +104,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--num-results", type=int, default=8, help="search results to request (default: 8)")
     parser.add_argument("--max-pages", type=int, default=3, help="result pages to fetch (default: 3)")
+    parser.add_argument("--search-pages", type=int, default=1, help="search result pages to read per engine (default: 1)")
     parser.add_argument(
         "--mode",
         choices=["auto", "feed", "video", "search", "related", "surf"],
@@ -111,6 +141,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--keep-links", action="store_true", help="preserve hyperlinks in Markdown")
     parser.add_argument("--images", action="store_true", help="preserve image references in Markdown")
     parser.add_argument("--max-chars", type=int, default=20_000, help="truncate Markdown to N characters (0 = no limit)")
+    parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=0,
+        help="also emit Markdown chunks of about N characters (0 = off)",
+    )
+    parser.add_argument("--cache", action="store_true", help="reuse responses cached under ~/.web-forager/cache")
+    parser.add_argument("--cache-ttl", type=int, default=3600, help="cache lifetime in seconds (default: 3600)")
+    parser.add_argument("--cache-dir", default="", help="override the cache directory")
+    parser.add_argument("--wait-for", default="", help="Playwright: wait for this CSS selector before reading the page")
+    parser.add_argument("--scroll", type=int, default=0, help="Playwright: wheel-scroll N times to load lazy content")
     parser.add_argument("--timeout", type=float, default=20.0, help="per-request timeout in seconds")
     parser.add_argument("--delay", type=float, default=1.0, help="politeness delay per host in seconds")
     parser.add_argument(
@@ -155,6 +196,13 @@ def build_config(args: argparse.Namespace) -> engine.FetchConfig:
         extract_links=args.action == "surf",
         follow=args.follow,
         search_engine=args.engine,
+        search_pages=max(1, args.search_pages),
+        cache=args.cache,
+        cache_ttl=max(0, args.cache_ttl),
+        cache_dir=args.cache_dir,
+        chunk_size=max(0, args.chunk_size),
+        wait_for=args.wait_for,
+        scroll=max(0, args.scroll),
     )
     config.validate()
     return config
@@ -170,6 +218,10 @@ def document_to_markdown(document: dict) -> str:
 
     if document.get("action") == "clean":
         return document.get("markdown", "")
+    if document.get("action") == "scholar":
+        return scholar.to_markdown(document)
+    if document.get("action") == "map":
+        return sitemap.to_markdown(document)
 
     blocks: list[str] = []
     for record in document.get("results", []):
@@ -233,6 +285,10 @@ def _document_summary(document: dict) -> str:
     action = document.get("action")
     if action == "clean":
         return f"cleaned {document.get('source', 'input')}"
+    if action == "scholar":
+        return f"{document.get('count', 0)} record(s) from {document.get('source', 'scholar')}"
+    if action == "map":
+        return f"{document.get('count', 0)} URL(s) from {document.get('origin', 'sitemap')}"
     results = document.get("results") or []
     if action == "bili":
         first = results[0] if results else {}
@@ -311,6 +367,12 @@ def cmd_fetch(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
     return engine.build_envelope("fetch", payload)
 
 
+def _clean_chunks(payload: dict, config: engine.FetchConfig) -> dict:
+    if config.chunk_size:
+        payload["chunks"] = engine.chunk_markdown(payload.get("markdown", ""), config.chunk_size)
+    return payload
+
+
 def _pdf_document(
     data: bytes,
     source: str,
@@ -341,7 +403,33 @@ def _pdf_document(
         "metadata": pdf_mod.to_metadata(extracted, url=url or ""),
         "tables": [],
         "markdown": markdown,
+        "chunks": engine.chunk_markdown(markdown, config.chunk_size) if config.chunk_size else [],
     }
+
+
+def _document_document(
+    data: bytes,
+    kind: str,
+    source: str,
+    url: str,
+    config: engine.FetchConfig,
+) -> dict:
+    extracted = documents.extract(data, kind, url=url or source)
+    markdown = extracted["markdown"]
+    if config.max_chars and len(markdown) > config.max_chars:
+        markdown = markdown[: config.max_chars].rstrip() + "\n\n<!-- truncated by web-forager -->"
+    payload = {
+        "tool": "web-forager",
+        "version": engine.__version__,
+        "action": "clean",
+        "generated_at": engine.utc_now(),
+        "source": source,
+        "content_type": kind,
+        "metadata": documents.to_metadata(extracted, url=url or ""),
+        "tables": extracted.get("tables") or [],
+        "markdown": markdown,
+    }
+    return _clean_chunks(payload, config)
 
 
 def cmd_clean(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
@@ -361,6 +449,9 @@ def cmd_clean(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
             source = str(path)
             if pdf_mod.is_pdf(data):
                 return _pdf_document(data, source, "", config)
+            kind = documents.detect(data, url=source)
+            if kind:
+                return _document_document(data, kind, source, "", config)
             html = engine.decode_bytes(data)
             base_url = args.url if args.url else None
         elif args.url:
@@ -370,6 +461,11 @@ def cmd_clean(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
             base_url = response.final_url
             if "application/pdf" in response.content_type or pdf_mod.is_pdf(response.content):
                 return _pdf_document(response.content, source, response.final_url, config)
+            kind = documents.detect(response.content, response.content_type, response.final_url)
+            if kind:
+                return _document_document(
+                    response.content, kind, source, response.final_url, config
+                )
             html = response.text
         else:
             if sys.stdin.isatty():
@@ -378,6 +474,9 @@ def cmd_clean(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
             source = "stdin"
             if pdf_mod.is_pdf(data):
                 return _pdf_document(data, source, "", config)
+            kind = documents.detect(data)
+            if kind:
+                return _document_document(data, kind, source, "", config)
             html = engine.decode_bytes(data)
 
         markdown = engine.html_to_markdown(
@@ -392,7 +491,7 @@ def cmd_clean(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
         if config.max_chars and len(markdown) > config.max_chars:
             markdown = markdown[: config.max_chars].rstrip() + "\n\n<!-- truncated by web-forager -->"
 
-        return {
+        payload = {
             "tool": "web-forager",
             "version": engine.__version__,
             "action": "clean",
@@ -402,6 +501,7 @@ def cmd_clean(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
             "tables": engine.extract_tables(html) if config.include_tables else [],
             "markdown": markdown,
         }
+        return _clean_chunks(payload, config)
     finally:
         if fetcher is not None:
             fetcher.close()
@@ -429,6 +529,31 @@ def cmd_surf(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
         session=args.session or None,
     )
     return engine.build_envelope("surf", payload)
+
+
+def cmd_scholar(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
+    if not args.query:
+        raise ValueError("--action scholar needs --query (or a DOI with --source doi)")
+    payload = scholar.search(
+        args.source,
+        args.query,
+        config,
+        limit=max(1, args.num_results),
+        sort=args.sort,
+    )
+    return engine.build_envelope("scholar", payload)
+
+
+def cmd_map(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
+    if not args.url:
+        raise ValueError("--action map needs --url (a site, sitemap or robots.txt URL)")
+    payload = sitemap.discover(
+        args.url,
+        config,
+        limit=max(1, args.limit),
+        max_sitemaps=max(1, args.max_sitemaps),
+    )
+    return engine.build_envelope("map", payload)
 
 
 def cmd_bili(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
@@ -509,6 +634,10 @@ def main(argv: list[str] | None = None) -> int:
             document = cmd_clean(args, config)
         elif args.action == "surf":
             document = cmd_surf(args, config)
+        elif args.action == "scholar":
+            document = cmd_scholar(args, config)
+        elif args.action == "map":
+            document = cmd_map(args, config)
         else:
             document = cmd_bili(args, config)
     except engine.RobotsDenied as exc:

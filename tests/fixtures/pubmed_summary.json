@@ -1,0 +1,31 @@
+{
+  "header": {"type": "esummary", "version": "0.3"},
+  "result": {
+    "uids": ["39000001", "39000002"],
+    "39000001": {
+      "uid": "39000001",
+      "title": "Robots-aware retrieval for biomedical literature.",
+      "authors": [{"name": "Lovelace A"}, {"name": "Turing A"}],
+      "pubdate": "2025 Mar 14",
+      "fulljournalname": "Journal of Biomedical Web Research",
+      "volume": "12",
+      "issue": "3",
+      "pages": "101-118",
+      "articleids": [
+        {"idtype": "pubmed", "value": "39000001"},
+        {"idtype": "doi", "value": "10.1234/jbwr.2025.0042"}
+      ]
+    },
+    "39000002": {
+      "uid": "39000002",
+      "title": "Sitemap discovery in clinical repositories.",
+      "authors": [{"name": "Hopper G"}],
+      "pubdate": "2024 Dec",
+      "fulljournalname": "Clinical Data Discovery",
+      "volume": "4",
+      "issue": "4",
+      "pages": "e200-e208",
+      "articleids": [{"idtype": "pubmed", "value": "39000002"}]
+    }
+  }
+}

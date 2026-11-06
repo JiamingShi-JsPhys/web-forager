@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PubmedArticleSet>
+  <PubmedArticle>
+    <MedlineCitation>
+      <PMID>39000001</PMID>
+      <Article>
+        <Abstract>
+          <AbstractText>Background: polite retrieval matters.</AbstractText>
+          <AbstractText>Results: robots-aware agents reduced load.</AbstractText>
+        </Abstract>
+      </Article>
+    </MedlineCitation>
+  </PubmedArticle>
+  <PubmedArticle>
+    <MedlineCitation>
+      <PMID>39000002</PMID>
+      <Article>
+        <Abstract>
+          <AbstractText>Clinical sitemaps improved discovery.</AbstractText>
+        </Abstract>
+      </Article>
+    </MedlineCitation>
+  </PubmedArticle>
+</PubmedArticleSet>

@@ -31,7 +31,8 @@ class _QuietHandler(http.server.SimpleHTTPRequestHandler):
 def site(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     root = tmp_path_factory.mktemp("site")
     (root / "robots.txt").write_text(
-        "User-agent: *\nDisallow: /private/\nAllow: /private/public/\nCrawl-delay: 0\n",
+        "User-agent: *\nDisallow: /private/\nAllow: /private/public/\nCrawl-delay: 0\n"
+        "Sitemap: /static_sitemap.xml\n",
         encoding="utf-8",
     )
     (root / "index.html").write_text(
@@ -42,6 +43,19 @@ def site(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     )
     (root / "data.bin").write_bytes(bytes([0, 1, 2]))
     (root / "sample.pdf").write_bytes((FIXTURES / "sample.pdf").read_bytes())
+    for name in (
+        "rss.xml",
+        "atom.xml",
+        "sitemap.xml",
+        "sitemap_index.xml",
+        "sample.docx",
+        "sample.xlsx",
+        "sample.epub",
+        "table.csv",
+    ):
+        (root / name).write_bytes((FIXTURES / name).read_bytes())
+    (root / "static_sitemap.xml").write_bytes((FIXTURES / "sitemap.xml").read_bytes())
+    (root / "feed.bin").write_bytes((FIXTURES / "rss.xml").read_bytes())
     (root / "search360.html").write_text(
         (FIXTURES / "search_360.html").read_text(encoding="utf-8"), encoding="utf-8"
     )

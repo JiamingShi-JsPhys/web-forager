@@ -44,10 +44,10 @@ import requests
 from bs4 import BeautifulSoup
 from bs4.element import NavigableString, Tag
 
-__version__ = "0.2.0"
+__version__ = "1.0.0"
 
 DEFAULT_USER_AGENT = (
-    "WebForager/0.2 (Academic Research; +https://example.org/web-forager; "
+    "WebForager/1.0 (Academic Research; +https://example.org/web-forager; "
     "contact: research@example.org)"
 )
 
@@ -93,6 +93,39 @@ class PdfExtractionError(WebForagerError):
     """The PDF could not be parsed or contained no text."""
 
 
+def parse_xml(text: str) -> ET.Element:
+    """Parse untrusted XML without XXE or entity-expansion risk.
+
+    ``defusedxml`` is used when it happens to be installed; otherwise the
+    input is rejected outright if it declares a DOCTYPE or an ENTITY, which
+    blocks both external entities and billion-laughs expansion.
+    """
+
+    if "<!ENTITY" in text:
+        raise FetchError("refusing XML with ENTITY declarations")
+    # An external DTD is harmless here (defusedxml forbids external entities;
+    # stdlib ElementTree never fetches the DTD), but an internal subset can
+    # declare entities, so only a bare DOCTYPE is stripped.
+    doctype = re.search(r"<!DOCTYPE[^>]*>", text, re.I | re.S)
+    if doctype:
+        if "[" in doctype.group(0):
+            raise FetchError("refusing XML with an internal DTD subset")
+        text = text.replace(doctype.group(0), "", 1)
+    try:
+        import defusedxml.ElementTree as DefusedET  # type: ignore
+    except ImportError:
+        DefusedET = None  # type: ignore[assignment]
+    if DefusedET is not None:
+        try:
+            return DefusedET.fromstring(text)
+        except Exception as exc:
+            raise FetchError(f"refusing unsafe XML: {exc}") from exc
+    try:
+        return ET.fromstring(text)
+    except ET.ParseError as exc:
+        raise FetchError(f"cannot parse XML: {exc}") from exc
+
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -120,6 +153,13 @@ class FetchConfig:
     max_links: int = 20
     follow: str = "same-site"      # same-site | all | none
     search_engine: str = "auto"
+    search_pages: int = 1
+    cache: bool = False
+    cache_ttl: int = 3600
+    cache_dir: str = ""
+    chunk_size: int = 0
+    wait_for: str = ""
+    scroll: int = 0
 
     def validate(self) -> None:
         if self.render not in ("auto", "never", "always"):
@@ -138,6 +178,14 @@ class FetchConfig:
             raise ValueError("max_pages must be >= 1")
         if self.max_links < 1:
             raise ValueError("max_links must be >= 1")
+        if self.search_pages < 1:
+            raise ValueError("search_pages must be >= 1")
+        if self.cache_ttl < 0:
+            raise ValueError("cache_ttl must be >= 0")
+        if self.chunk_size < 0:
+            raise ValueError("chunk_size must be >= 0")
+        if self.scroll < 0:
+            raise ValueError("scroll must be >= 0")
         if not self.user_agent or len(self.user_agent) < 8:
             raise ValueError("user_agent must be a descriptive string")
 
@@ -541,6 +589,18 @@ _HTML_CONTENT_TYPES = (
 _TEXT_CONTENT_TYPES = ("text/plain", "text/markdown", "text/csv")
 _JSON_CONTENT_TYPES = ("application/json", "application/ld+json")
 _PDF_CONTENT_TYPES = ("application/pdf",)
+_DOCUMENT_CONTENT_TYPES = (
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/epub+zip",
+)
+_DOCUMENT_EXTENSIONS = {
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".epub": "application/epub+zip",
+    ".csv": "text/csv",
+}
+_FEED_CONTENT_TYPES = ("application/rss+xml", "application/atom+xml", "application/xml", "text/xml")
 
 
 @dataclass
@@ -553,6 +613,19 @@ class HttpResponse:
     text: str
     encoding: str
     content_type: str
+    from_cache: bool = False
+
+
+def _cache_root(config: FetchConfig) -> Path:
+    if config.cache_dir:
+        return Path(config.cache_dir).expanduser()
+    return Path.home() / ".web-forager" / "cache"
+
+
+def _cache_key(url: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(url.encode("utf-8")).hexdigest()
 
 
 class HttpFetcher:
@@ -601,6 +674,10 @@ class HttpFetcher:
         if check_robots:
             policy = self.assert_allowed(url)
 
+        cached = self._read_cache(url)
+        if cached is not None:
+            return cached
+
         extra = policy.crawl_delay if policy and policy.crawl_delay else 0.0
         self.limiter.wait(url, extra)
 
@@ -631,20 +708,90 @@ class HttpFetcher:
                 response.close()
                 raise FetchError(f"HTTP {status} for {url}")
 
-            return self._read_response(response, url)
+            result = self._read_response(response, url)
+            self._write_cache(url, result)
+            return result
 
         raise FetchError(f"request failed for {url}: {last_error}") from last_error
 
+    # -- on-disk response cache ----------------------------------------
+
+    def _cache_paths(self, url: str) -> tuple[Path, Path]:
+        root = _cache_root(self.config)
+        key = _cache_key(url)
+        return root / f"{key}.json", root / f"{key}.bin"
+
+    def _read_cache(self, url: str) -> Optional[HttpResponse]:
+        if not self.config.cache or self.config.cache_ttl <= 0:
+            return None
+        meta_path, body_path = self._cache_paths(url)
+        try:
+            if not meta_path.is_file() or not body_path.is_file():
+                return None
+            age = time.time() - meta_path.stat().st_mtime
+            if age > self.config.cache_ttl:
+                return None
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            body = body_path.read_bytes()
+        except (OSError, json.JSONDecodeError):
+            return None
+        content_type = str(meta.get("content_type") or "text/html")
+        encoding = str(meta.get("encoding") or "utf-8")
+        text = body.decode(encoding, errors="replace")
+        log(f"cache hit: {url}", self.config)
+        return HttpResponse(
+            url=url,
+            final_url=str(meta.get("final_url") or url),
+            status=int(meta.get("status") or 200),
+            headers={str(k): str(v) for k, v in (meta.get("headers") or {}).items()},
+            content=body,
+            text=text,
+            encoding=encoding,
+            content_type=content_type,
+            from_cache=True,
+        )
+
+    def _write_cache(self, url: str, response: HttpResponse) -> None:
+        if not self.config.cache or response.status != 200:
+            return
+        meta_path, body_path = self._cache_paths(url)
+        try:
+            meta_path.parent.mkdir(parents=True, exist_ok=True)
+            body_path.write_bytes(response.content)
+            meta_path.write_text(
+                json.dumps(
+                    {
+                        "url": url,
+                        "final_url": response.final_url,
+                        "status": response.status,
+                        "headers": response.headers,
+                        "content_type": response.content_type,
+                        "encoding": response.encoding,
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+        except OSError as exc:  # a cache failure must never fail the fetch
+            log(f"cache write skipped ({exc})", self.config)
+
     def _read_response(self, response: requests.Response, requested_url: str) -> HttpResponse:
         content_type = (response.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
-        # Some servers label PDFs as application/octet-stream; trust the URL.
-        if content_type == "application/octet-stream" and requested_url.lower().split("?")[0].endswith(".pdf"):
-            content_type = "application/pdf"
+        path = requested_url.lower().split("?", 1)[0]
+        if content_type == "application/octet-stream":
+            for extension, mapped in _DOCUMENT_EXTENSIONS.items():
+                if path.endswith(extension):
+                    content_type = mapped
+                    break
+            else:
+                if path.endswith(".pdf"):
+                    content_type = "application/pdf"
         if content_type and not _is_supported_content_type(content_type):
             response.close()
             raise FetchError(
                 f"unsupported content type '{content_type}' for {requested_url}; "
-                "web-forager handles HTML, XML, plain text, JSON and PDF only"
+                "web-forager handles HTML, XML/feeds, plain text, CSV, JSON, PDF "
+                "and DOCX/XLSX/EPUB only"
             )
 
         chunks: list[bytes] = []
@@ -665,6 +812,16 @@ class HttpFetcher:
         raw = b"".join(chunks)[: self.config.max_bytes]
         if raw[:5] == b"%PDF-":
             content_type = "application/pdf"
+        if content_type in ("application/octet-stream", "binary/octet-stream"):
+            if raw[:4] == b"PK\x03\x04":
+                pass  # DOCX/XLSX/EPUB is detected after reading
+            elif not _looks_like_text(raw):
+                response.close()
+                raise FetchError(
+                    f"unsupported binary payload for {requested_url}; "
+                    "web-forager handles text, HTML, XML/feeds, JSON, PDF and "
+                    "DOCX/XLSX/EPUB only"
+                )
         encoding = _detect_encoding(raw, content_type, response.encoding)
         text = raw.decode(encoding, errors="replace")
         if truncated:
@@ -724,9 +881,24 @@ class HttpFetcher:
 
 
 def _is_supported_content_type(content_type: str) -> bool:
-    if content_type in _JSON_CONTENT_TYPES or content_type in _PDF_CONTENT_TYPES:
+    if (
+        content_type in _JSON_CONTENT_TYPES
+        or content_type in _PDF_CONTENT_TYPES
+        or content_type in _DOCUMENT_CONTENT_TYPES
+        or content_type in ("application/octet-stream", "binary/octet-stream")
+    ):
         return True
     return any(content_type.startswith(prefix) for prefix in _HTML_CONTENT_TYPES + _TEXT_CONTENT_TYPES)
+
+
+def _looks_like_text(raw: bytes) -> bool:
+    sample = raw[:4096]
+    if not sample:
+        return True
+    if b"\x00" in sample:
+        return False
+    controls = sum(1 for byte in sample if byte < 9 or 13 < byte < 32)
+    return controls / len(sample) < 0.02
 
 
 def _retry_after_seconds(value: Optional[str]) -> Optional[float]:
@@ -784,11 +956,14 @@ def decode_bytes(data: bytes, content_type: str = "") -> str:
 # Search back-ends (public result pages; parsed from scratch)
 # ---------------------------------------------------------------------------
 
-_BING_RSS = "https://www.bing.com/search?q={query}&format=rss&count={count}"
-_BING_HTML = "https://www.bing.com/search?q={query}&count={count}&setlang=zh-hans&mkt=zh-CN"
+_BING_RSS = "https://www.bing.com/search?q={query}&format=rss&count={count}&first={first}"
+_BING_HTML = (
+    "https://www.bing.com/search?q={query}&count={count}&first={first}"
+    "&setlang=zh-hans&mkt=zh-CN"
+)
 _DDG_HTML = "https://html.duckduckgo.com/html/?q={query}"
-_SO_360 = "https://www.so.com/s?q={query}&pn=1"
-_SOGOU = "https://www.sogou.com/web?query={query}"
+_SO_360 = "https://www.so.com/s?q={query}&pn={page}"
+_SOGOU = "https://www.sogou.com/web?query={query}&page={page}"
 
 SEARCH_ENGINES = ("auto", "all", "360", "bing", "sogou", "duckduckgo")
 
@@ -843,7 +1018,14 @@ def search(
     try:
         for name in engines:
             try:
-                groups.append((name, _search_one(name, query, config, limit, fetcher)))
+                groups.append(
+                    (
+                        name,
+                        _search_one(
+                            name, query, config, limit, fetcher, pages=config.search_pages
+                        ),
+                    )
+                )
             except Exception as exc:  # one engine failing must not kill the query
                 errors.append(f"{name}: {exc}")
     finally:
@@ -866,31 +1048,59 @@ def _search_one(
     config: FetchConfig,
     limit: int,
     fetcher: HttpFetcher,
+    pages: int = 1,
 ) -> list[dict[str, str]]:
     quoted = urllib.parse.quote_plus(query)
-    if name == "360":
-        response = fetcher.fetch(_SO_360.format(query=quoted), check_robots=False)
-        return parse_360_html(response.text, limit=limit)
-    if name == "sogou":
-        response = fetcher.fetch(_SOGOU.format(query=quoted), check_robots=False)
-        if is_sogou_blocked(response.text):
-            raise FetchError("Sogou returned a verification page (antispider)")
-        parsed = parse_sogou_html(response.text, base="https://www.sogou.com/", limit=limit)
-        return resolve_sogou_results(parsed, fetcher, limit=limit)
-    if name == "duckduckgo":
-        response = fetcher.fetch(_DDG_HTML.format(query=quoted), check_robots=False)
-        return parse_ddg_html(response.text, limit=limit)
+    pages = max(1, pages)
+    collected: list[dict[str, str]] = []
 
-    # Bing: RSS is cheaper and gives direct URLs; HTML is the fallback.
-    try:
-        response = fetcher.fetch(_BING_RSS.format(query=quoted, count=limit), check_robots=False)
-        results = parse_bing_rss(response.text, limit=limit)
-    except FetchError:
-        results = []
-    if not results:
-        response = fetcher.fetch(_BING_HTML.format(query=quoted, count=limit), check_robots=False)
-        results = parse_bing_html(response.text, limit=limit)
-    return results
+    for page in range(1, pages + 1):
+        if name == "duckduckgo" and page > 1:
+            break
+        if name == "360":
+            response = fetcher.fetch(
+                _SO_360.format(query=quoted, page=page), check_robots=False
+            )
+            found = parse_360_html(response.text, limit=limit)
+        elif name == "sogou":
+            response = fetcher.fetch(
+                _SOGOU.format(query=quoted, page=page), check_robots=False
+            )
+            if is_sogou_blocked(response.text):
+                raise FetchError("Sogou returned a verification page (antispider)")
+            parsed = parse_sogou_html(
+                response.text, base="https://www.sogou.com/", limit=limit
+            )
+            found = resolve_sogou_results(parsed, fetcher, limit=limit)
+        elif name == "duckduckgo":
+            response = fetcher.fetch(_DDG_HTML.format(query=quoted), check_robots=False)
+            found = parse_ddg_html(response.text, limit=limit)
+        else:
+            first = 1 + (page - 1) * 10
+            # Bing: RSS is cheaper and gives direct URLs; HTML is the fallback.
+            try:
+                response = fetcher.fetch(
+                    _BING_RSS.format(query=quoted, count=limit, first=first),
+                    check_robots=False,
+                )
+                found = parse_bing_rss(response.text, limit=limit)
+            except FetchError:
+                found = []
+            if not found:
+                response = fetcher.fetch(
+                    _BING_HTML.format(query=quoted, count=limit, first=first),
+                    check_robots=False,
+                )
+                found = parse_bing_html(response.text, limit=limit)
+
+        if not found:
+            break
+        collected.extend(found)
+        collected = dedupe_results(collected, limit=limit * pages)
+        if len(collected) >= limit * pages:
+            break
+
+    return collected[: limit * pages]
 
 
 def _query_tokens(query: str) -> list[str]:
@@ -1246,6 +1456,9 @@ def looks_dynamic(html: str) -> bool:
 
     if not html:
         return False
+    head = html.lstrip()[:1000].lower()
+    if head.startswith("<?xml") or head.startswith("<rss") or head.startswith("<feed"):
+        return False
     script_count = html.lower().count("<script")
     marker_hit = any(marker in html for marker in _DYNAMIC_MARKERS)
     text = visible_text(html)
@@ -1266,6 +1479,83 @@ def _normalize_markdown(markdown: str) -> str:
     text = (markdown or "").replace("\r\n", "\n").replace("\r", "\n")
     text = _MULTI_NEWLINE_RE.sub("\n\n", text)
     return text.strip()
+
+
+def _hard_split_block(block: str, size: int) -> list[str]:
+    pieces: list[str] = []
+    remaining = block.strip()
+    while len(remaining) > size:
+        cut = remaining.rfind("\n", 0, size)
+        if cut < size // 2:
+            for marker in ("。", "！", "？", ". ", "! ", "? "):
+                candidate = remaining.rfind(marker, 0, size)
+                if candidate >= size // 2:
+                    cut = candidate + len(marker)
+                    break
+        if cut < size // 2:
+            cut = remaining.rfind(" ", 0, size)
+        if cut < size // 2:
+            cut = size
+        pieces.append(remaining[:cut].strip())
+        remaining = remaining[cut:].strip()
+    if remaining:
+        pieces.append(remaining)
+    return [piece for piece in pieces if piece]
+
+
+def chunk_markdown(markdown: str, size: int = 4000, overlap: int = 0) -> list[dict[str, Any]]:
+    """Split Markdown into context-sized chunks at paragraph boundaries.
+
+    Each chunk records the nearest preceding heading so an agent can tell
+    which section it is reading without re-reading the whole document.
+    """
+
+    if size <= 0:
+        return []
+    text = _normalize_markdown(markdown)
+    if not text:
+        return []
+    blocks = re.split(r"\n{2,}", text)
+    chunks: list[dict[str, Any]] = []
+    current: list[str] = []
+    current_len = 0
+    heading = ""
+    overlap = max(0, min(overlap, size // 2))
+
+    def flush() -> None:
+        nonlocal current, current_len
+        body = "\n\n".join(current).strip()
+        if body:
+            chunks.append(
+                {
+                    "index": len(chunks) + 1,
+                    "heading": heading,
+                    "chars": len(body),
+                    "text": body,
+                }
+            )
+        current = []
+        current_len = 0
+
+    for block in blocks:
+        block = block.strip()
+        if not block:
+            continue
+        match = re.match(r"^(#{1,6})\s+(.+)$", block)
+        if match and len(block) < 300:
+            heading = match.group(2).strip()
+        pieces = _hard_split_block(block, size) if len(block) > size else [block]
+        for piece in pieces:
+            if current and current_len + len(piece) + 2 > size:
+                flush()
+                if overlap and chunks:
+                    tail = chunks[-1]["text"][-overlap:]
+                    current = [tail]
+                    current_len = len(tail)
+            current.append(piece)
+            current_len += len(piece) + 2
+    flush()
+    return chunks
 
 
 def html_to_markdown(
@@ -1320,7 +1610,10 @@ def _trafilatura_markdown(
             include_comments=False,
             include_formatting=True,
             favor_recall=True,
-            deduplicate=True,
+            # A global deduplication cache would silently drop sentences seen in
+            # an earlier page during a long agent session. Duplicate removal
+            # inside one document is already handled by trafilatura itself.
+            deduplicate=False,
         ) or ""
     except Exception:
         return ""
@@ -1833,6 +2126,17 @@ def render_html(url: str, config: FetchConfig) -> str:
                     page.wait_for_load_state("networkidle", timeout=min(5_000, timeout_ms))
                 except Exception:
                     pass
+                if config.wait_for:
+                    try:
+                        page.wait_for_selector(config.wait_for, timeout=min(10_000, timeout_ms))
+                    except Exception:
+                        pass
+                for _ in range(config.scroll):
+                    try:
+                        page.mouse.wheel(0, 1800)
+                        page.wait_for_timeout(350)
+                    except Exception:
+                        break
                 page.wait_for_timeout(500)
                 html = page.content()
                 context.close()
@@ -2111,11 +2415,13 @@ def fetch_page(
         final_url = response.final_url if response else url
         status = response.status if response else 200
 
-        from . import pdf as pdf_mod
+        from . import documents, feeds, pdf as pdf_mod
 
         is_pdf_payload = response is not None and (
             content_type in _PDF_CONTENT_TYPES or pdf_mod.is_pdf(response.content)
         )
+        document_kind = ""
+        feed_format = ""
 
         if is_pdf_payload and response is not None:
             try:
@@ -2131,6 +2437,29 @@ def fetch_page(
                 f"PDF text extracted: {pdf_document.get('page_count', 0)} page(s), "
                 f"{pdf_document.get('empty_pages', 0)} empty"
             )
+        elif response is not None and (
+            document_kind := documents.detect(response.content, content_type, final_url)
+        ):
+            document = documents.extract(
+                response.content, document_kind, content_type, final_url
+            )
+            markdown = document["markdown"]
+            metadata = documents.to_metadata(document, final_url)
+            tables = document.get("tables") or []
+            warnings.append(f"{document_kind.upper()} extracted")
+        elif response is not None and (
+            content_type in _FEED_CONTENT_TYPES
+            or (
+                ("<rss" in html[:1000].lower() or "<feed" in html[:1000].lower())
+                and feeds.is_feed(html)
+            )
+        ):
+            feed = feeds.extract(html, limit=max(1, config.num_results))
+            feed_format = feed["format"]
+            markdown = feed["markdown"]
+            metadata = feeds.to_metadata(feed, final_url)
+            tables = []
+            warnings.append(f"feed parsed: {feed['format']} with {feed['count']} item(s)")
         elif any(ct in content_type for ct in _JSON_CONTENT_TYPES) and response is not None:
             markdown = "```json\n" + response.text.strip() + "\n```"
             metadata = {
@@ -2175,7 +2504,7 @@ def fetch_page(
             warnings.append(f"markdown truncated to {config.max_chars} characters")
 
         links = []
-        if config.extract_links and not is_pdf_payload:
+        if config.extract_links and not is_pdf_payload and not document_kind and not feed_format:
             links = extract_links(
                 html,
                 final_url,
@@ -2184,16 +2513,22 @@ def fetch_page(
                 same_site=config.follow == "same-site",
             )
 
+        chunks = chunk_markdown(markdown, config.chunk_size) if config.chunk_size else []
+
         return {
             "url": url,
             "final_url": final_url,
             "status": status,
             "content_type": content_type,
+            "document_kind": document_kind,
+            "feed_format": feed_format,
+            "cached": bool(response.from_cache) if response else False,
             "rendered": rendered,
             "fetched_at": utc_now(),
             "title": metadata.get("title", ""),
             "metadata": metadata,
             "markdown": markdown,
+            "chunks": chunks,
             "tables": tables,
             "links": links,
             "warnings": warnings,

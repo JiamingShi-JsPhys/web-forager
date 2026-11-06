@@ -23,6 +23,12 @@ pypdf (optional)
   License: BSD 3-Clause
   Copyright: Mathieu Fenniak and contributors
 
+defusedxml (optional, used only if already installed)
+  License: PSF License 2.0
+  Copyright: Christian Heimes and contributors
+  Not a required dependency; without it the plugin still rejects DOCTYPE
+  internal subsets and all ENTITY declarations before parsing.
+
 The search-result and robots.txt parsers, the Markdown converter, the
 metadata extractor and the CLI in this plugin are original code written for
 this project. They are not derived from Crawlee, Scrapy, or any other

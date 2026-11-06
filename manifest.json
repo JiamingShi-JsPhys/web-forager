@@ -1,12 +1,20 @@
 {
   "name": "web-forager",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "stage": "domain_extensions",
   "input_types": [
     "url",
     "html",
     "pdf",
+    "docx",
+    "xlsx",
+    "epub",
+    "csv",
+    "rss",
+    "atom",
+    "sitemap",
     "keyword",
+    "doi",
     "bvid"
   ],
   "output_type": "markdown",
@@ -29,12 +37,27 @@
     "fetch",
     "clean",
     "bili",
-    "surf"
+    "surf",
+    "scholar",
+    "map"
   ],
+  "mcp": {
+    "entrypoint": "mcp_server.py",
+    "config": ".mcp.json",
+    "tools": [
+      "web_fetch",
+      "web_search",
+      "web_surf",
+      "web_scholar",
+      "web_map",
+      "web_bilibili",
+      "web_clean"
+    ]
+  },
   "license": "MIT",
   "author": {
     "name": "Jiaming Shi"
   },
-  "description": "Clean-room, robots-aware web fetching for academic research. Fetch a URL or search keywords through 360/Bing/Sogou, extract article text, tables, bibliographic metadata and PDF text, convert HTML to Markdown, browse Bilibili (feed, video, related, surf), and let an agent surf the web link by link with resumable sessions. Optional Playwright rendering for JavaScript-heavy pages.",
+  "description": "Clean-room, robots-aware web intelligence for academic research. Search 360/Bing/Sogou, fetch HTML/PDF/DOCX/XLSX/EPUB/CSV and RSS/Atom, extract metadata and tables, discover sitemaps, query arXiv/Crossref/PubMed/DOI, stream Markdown chunks, cache politely, and let an agent surf the web or Bilibili with resumable sessions. Ships a CLI, an OpenCLI-style --agent envelope and a stdio MCP server. Optional Playwright rendering.",
   "disclaimer": "本插件仅供学术研究使用。使用者需遵守目标网站的 Terms of Service 及相关版权法律。禁止用于抓取个人隐私数据或进行恶意并发攻击。"
 }
