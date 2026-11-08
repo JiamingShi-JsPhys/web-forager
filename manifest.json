@@ -1,6 +1,6 @@
 {
   "name": "web-forager",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "stage": "domain_extensions",
   "input_types": [
     "url",
@@ -51,7 +51,8 @@
       "web_scholar",
       "web_map",
       "web_bilibili",
-      "web_clean"
+      "web_clean",
+      "web_doctor"
     ]
   },
   "license": "MIT",

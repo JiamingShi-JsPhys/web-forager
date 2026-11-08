@@ -82,9 +82,25 @@ def test_fetch_single_url_against_local_site(site: str) -> None:
     payload = json.loads(result.stdout)
     assert payload["tool"] == "web-forager"
     assert payload["action"] == "fetch"
-    record = payload["results"][0]
-    assert record["metadata"]["doi"] == "10.1234/jewr.2025.0042"
-    assert record["markdown"]
+    assert payload["metadata"]["doi"] == "10.1234/jewr.2025.0042"
+    assert payload["markdown"]
+    # results is a compact index now; the body appears once, at the top level.
+    summary = payload["results"][0]
+    assert summary["markdown_chars"] > 0
+    assert "markdown" not in summary
+
+
+def test_full_results_flag_restores_page_records(site: str) -> None:
+    result = run_cli(
+        "--action", "fetch",
+        "--url", f"{site}/index.html",
+        "--delay", "0",
+        "--full-results",
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["results"][0]["metadata"]["doi"] == "10.1234/jewr.2025.0042"
+    assert payload["results"][0]["markdown"]
 
 
 def test_robots_denied_exit_code_is_three(site: str) -> None:
@@ -112,7 +128,7 @@ def test_help_contains_disclaimer() -> None:
 def test_version_flag() -> None:
     result = run_cli("--version")
     assert result.returncode == 0
-    assert "web-forager 1.0.1" in result.stdout
+    assert "web-forager 1.0.2" in result.stdout
 
 
 def test_bili_video_mode(site: str) -> None:
@@ -131,18 +147,21 @@ def test_bili_video_mode(site: str) -> None:
 
 
 def test_bili_feed_mode(site: str) -> None:
+    # --max-pages 0 keeps the run on the fixture server: enriching a card means
+    # fetching its canonical bilibili.com page, which needs the network.
     result = run_cli(
         "--action", "bili",
         "--mode", "feed",
         "--url", f"{site}/bili_home.html",
         "--num-results", "10",
-        "--max-pages", "1",
+        "--max-pages", "0",
         "--delay", "0",
     )
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert len(payload["cards"]) == 2
-    assert payload["videos"][0]["bvid"] == "BV1xx411c7mD"
+    assert payload["cards"][0]["bvid"] == "BV1xx411c7mD"
+    assert payload["results"] == payload["cards"]
 
 
 def test_root_writes_chelate_four_zone_artifacts(tmp_path: Path) -> None:

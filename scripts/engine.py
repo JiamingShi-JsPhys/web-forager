@@ -44,7 +44,7 @@ import requests
 from bs4 import BeautifulSoup
 from bs4.element import NavigableString, Tag
 
-__version__ = "1.0.1"
+__version__ = "1.0.2"
 
 DEFAULT_USER_AGENT = (
     "WebForager/1.0 (Information Gathering; +https://example.org/web-forager; "
@@ -978,6 +978,41 @@ _360_INTERNAL_HOSTS = (
 _SOGOU_BLOCK_MARKERS = ("antispider", "安全验证", "人机验证", "验证码")
 
 
+_CJK_RE = re.compile(r"[㐀-䶿一-鿿豈-﫿぀-ヿ가-힯]")
+_USEFUL_TITLE_RE = re.compile(r"[\w㐀-䶿一-鿿]")
+_MOJIBAKE_RE = re.compile(r"[�\u0000-\u0008\u000b\u000c\u000e-\u001f]")
+
+
+def looks_garbled(text: str, threshold: float = 0.2) -> bool:
+    """True when text is mostly replacement or control characters.
+
+    This catches an engine handing back an anti-bot page instead of results.
+    Real mojibake (UTF-8 read as Latin-1) is not caught here: it looks like
+    ordinary punctuation to a character-class check.
+    """
+
+    value = str(text or "")
+    if not value:
+        return False
+    return len(_MOJIBAKE_RE.findall(value)) / len(value) >= threshold
+
+
+def prefers_chinese_engines(query: str) -> bool:
+    """True when a query is mostly CJK text.
+
+    Such queries rank better on 360 and Sogou; Bing's tokeniser treats quoted
+    Chinese phrases as single characters, which buries the precise hits.
+    """
+
+    text = str(query or "")
+    if not text:
+        return False
+    cjk = len(_CJK_RE.findall(text))
+    if not cjk:
+        return False
+    return cjk >= len(re.findall(r"[A-Za-z]", text))
+
+
 def search(
     query: str,
     config: FetchConfig,
@@ -1003,8 +1038,17 @@ def search(
     if engine not in SEARCH_ENGINES:
         raise ValueError(f"unsupported search engine: {engine}")
 
+    fallback_engines: list[str] = []
     if engine == "auto":
-        engines = ["360", "bing"]
+        # Bing tokenises quoted Chinese phrases poorly: it matches single
+        # characters and pushes dictionary pages above the precise hits. For a
+        # CJK query, ask 360 and Sogou first and keep Bing only as a fallback
+        # for when both are unreachable.
+        if prefers_chinese_engines(query):
+            engines = ["360", "sogou"]
+            fallback_engines = ["bing"]
+        else:
+            engines = ["360", "bing"]
     elif engine == "all":
         engines = ["360", "bing", "sogou"]
     else:
@@ -1015,8 +1059,8 @@ def search(
     groups: list[tuple[str, list[dict[str, str]]]] = []
     errors: list[str] = []
 
-    try:
-        for name in engines:
+    def collect(names: list[str]) -> None:
+        for name in names:
             try:
                 groups.append(
                     (
@@ -1028,6 +1072,11 @@ def search(
                 )
             except Exception as exc:  # one engine failing must not kill the query
                 errors.append(f"{name}: {exc}")
+
+    try:
+        collect(engines)
+        if not groups and fallback_engines:
+            collect(fallback_engines)
     finally:
         if own_fetcher:
             fetcher.close()
@@ -1239,13 +1288,20 @@ def resolve_sogou_results(
 
 
 def dedupe_results(results: Iterable[dict[str, str]], limit: int = 8) -> list[dict[str, str]]:
-    """Remove duplicate URLs while preserving rank order."""
+    """Remove duplicate URLs and unusable titles while preserving rank order."""
 
     seen: set[str] = set()
     unique: list[dict[str, str]] = []
     for item in results:
         url = item.get("url", "")
         if not url or url in seen:
+            continue
+        title = str(item.get("title") or "")
+        # Engines sometimes answer a query with an anti-bot interstitial and
+        # the "title" comes back as replacement characters or bare punctuation.
+        # An entry with no title at all is left alone: other callers feed
+        # dedupe_results bare URLs.
+        if title and (looks_garbled(title) or not _USEFUL_TITLE_RE.search(title)):
             continue
         seen.add(url)
         unique.append(item)
@@ -2355,7 +2411,6 @@ def surf_web(
             "trail": trail,
             "visited": sorted(visited),
             "pages": pages,
-            "results": pages,
         }
     finally:
         if session:
@@ -2584,11 +2639,111 @@ def fetch_by_query(
             fetcher.close()
 
 
-def build_envelope(action: str, payload: dict[str, Any]) -> dict[str, Any]:
+def summarize_record(record: dict[str, Any]) -> dict[str, Any]:
+    """Return a compact index entry for one fetched page.
+
+    ``results`` used to repeat every page in full, so a search response carried
+    each Markdown body twice and callers with a response cap lost the tail.
+    The body lives in ``pages`` once; this is the entry an agent loops over.
+    """
+
+    if not isinstance(record, dict):
+        return {"value": record}
+    summary: dict[str, Any] = {
+        "url": record.get("url") or record.get("final_url") or "",
+        "title": record.get("title", ""),
+        "status": record.get("status"),
+        "content_type": record.get("content_type", ""),
+        "markdown_chars": len(record.get("markdown") or ""),
+        "tables": len(record.get("tables") or []),
+    }
+    if record.get("error"):
+        summary.pop("status", None)
+        summary["error"] = record["error"]
+    if record.get("warnings"):
+        summary["warnings"] = record["warnings"]
+    return summary
+
+
+def doctor_report() -> dict[str, Any]:
+    """Report which capabilities this interpreter can serve, with install hints.
+
+    An agent that gets a rendered-less page can run this and install what is
+    missing instead of guessing why the output was thin.
+    """
+
+    import importlib.metadata
+    import importlib.util
+    import platform
+    import shutil
+
+    def version_of(distribution: str) -> str:
+        try:
+            return importlib.metadata.version(distribution)
+        except Exception:
+            return ""
+
+    def check(name: str, module: str, distribution: str, hint: str, required: bool) -> dict[str, Any]:
+        entry: dict[str, Any] = {"name": name, "required": required}
+        try:
+            available = importlib.util.find_spec(module) is not None
+        except (ImportError, ValueError):
+            available = False
+        entry["ok"] = available
+        if available:
+            entry["version"] = version_of(distribution)
+        elif hint:
+            entry["hint"] = hint
+        return entry
+
+    checks = [
+        check("requests", "requests", "requests", "pip install requests", True),
+        check("beautifulsoup4", "bs4", "beautifulsoup4", "pip install beautifulsoup4", True),
+        check("trafilatura", "trafilatura", "trafilatura", "pip install trafilatura", True),
+        check(
+            "playwright",
+            "playwright",
+            "playwright",
+            "pip install playwright && playwright install chromium",
+            False,
+        ),
+        check("pypdf", "pypdf", "pypdf", "pip install pypdf", False),
+        check("defusedxml", "defusedxml", "defusedxml", "pip install defusedxml", False),
+    ]
+    node_path = shutil.which("node")
+    if node_path:
+        checks.append({"name": "node", "required": False, "ok": True, "path": node_path})
+    else:
+        checks.append(
+            {
+                "name": "node",
+                "required": False,
+                "ok": False,
+                "hint": "install Node.js 18+ only if you use browser mode",
+            }
+        )
+
+    missing_required = [item["name"] for item in checks if item["required"] and not item["ok"]]
+    return {
+        "ok": not missing_required,
+        "python": platform.python_version(),
+        "platform": platform.platform(),
+        "version": __version__,
+        "missing_required": missing_required,
+        "checks": checks,
+    }
+
+
+def build_envelope(
+    action: str, payload: dict[str, Any], full_results: bool = False
+) -> dict[str, Any]:
     """Wrap a payload with tool metadata for stable downstream parsing.
 
     ``results`` is the flat list an agent loops over: fetched pages, videos or
-    Bilibili items.  A surf run keeps its extra ``trail``/``visited`` fields.
+    Bilibili items.  It holds a compact index unless ``full_results`` is set,
+    because repeating every page body in both ``pages`` and ``results`` doubled
+    the response and pushed the tail past a caller's size cap.  A surf run keeps
+    its extra ``trail``/``visited`` fields.
     """
 
     envelope: dict[str, Any] = {
@@ -2600,9 +2755,27 @@ def build_envelope(action: str, payload: dict[str, Any]) -> dict[str, Any]:
     envelope.update(payload)
     if "results" not in envelope:
         if "pages" in payload:
-            envelope["results"] = payload["pages"]
+            if full_results:
+                envelope["results"] = payload["pages"]
+            else:
+                snippets = {
+                    item.get("url", ""): item.get("snippet", "")
+                    for item in payload.get("search_results") or []
+                }
+                entries: list[dict[str, Any]] = []
+                for page in payload["pages"]:
+                    entry = summarize_record(page)
+                    snippet = snippets.get(page.get("url") or page.get("final_url") or "")
+                    if snippet:
+                        entry["snippet"] = snippet
+                    entries.append(entry)
+                envelope["results"] = entries
         elif "videos" in payload:
             envelope["results"] = payload["videos"]
+        elif "search_results" in payload:
+            envelope["results"] = payload["search_results"]
+        elif "markdown" in payload or "error" in payload:
+            envelope["results"] = [payload] if full_results else [summarize_record(payload)]
         else:
             envelope["results"] = [payload]
     return envelope

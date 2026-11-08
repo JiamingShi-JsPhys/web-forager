@@ -1,5 +1,45 @@
 # Changelog
 
+## 1.0.2 — 2026-11-08
+
+Fixes for issue #1: duplicated page bodies in the response, Bing polluting
+Chinese `auto` searches, no way for an agent to check optional dependencies,
+and garbled titles reaching the caller.
+
+### Fixed
+
+- **`results` no longer repeats every page body.** A search response carried
+  each Markdown page twice — once in `pages`, once in `results` — so a caller
+  with a 50 KB cap received a truncated tail. `results` is now a compact index
+  (`url`, `title`, `status`, `content_type`, `markdown_chars`, `tables`,
+  `snippet`, `warnings`, `error`); the body stays in `pages` and, for a single
+  fetch, at the top level. The old shape is one flag away: `--full-results` on
+  the CLI, `fullResults` on the MCP tools.
+- **`auto` no longer mixes Bing into Chinese queries.** Bing treats a quoted
+  Chinese phrase as single characters, so dictionary and encyclopaedia pages
+  outranked the precise hits. A mostly-CJK query now asks 360 and Sogou, and
+  falls back to Bing only if both are unreachable. Latin queries are unchanged.
+- **Garbled result titles are dropped.** A title made mostly of replacement or
+  control characters — the shape an anti-bot page leaves behind — no longer
+  reaches the caller.
+
+### Added
+
+- **`--action doctor`** and the **`web_doctor` MCP tool** report every
+  dependency with its version or its install command, so an agent that receives
+  a thin page can install what is missing instead of guessing.
+
+### Changed
+
+- The MCP server exposes eight tools instead of seven.
+- A skipped dynamic render still records the install command in the warning.
+
+### Tests
+
+- 131 tests. New coverage for the compact envelope, `--full-results`, the
+  language routing and fallback, garbled-title filtering, and the doctor report.
+  The Bilibili feed tests no longer reach the network.
+
 ## 1.0.1 — 2026-11-06
 
 Patch release for the MCP server on Windows hosts.

@@ -10,7 +10,7 @@
 
 [English](README.md) · **简体中文**
 
-**版本：** 1.0.1 ｜ **CLI 动作：** 6 ｜ **MCP 工具：** 7
+**版本：** 1.0.2 ｜ **CLI 动作：** 6 ｜ **MCP 工具：** 7
 
 ---
 
@@ -32,7 +32,7 @@
 
 **合规内建在抓取器里，而不是事后补丁。** robots.txt（RFC 9309 子集）、按站点限速、响应体上限、重定向上限和明确的信息收集 User-Agent 对每个请求生效，搜索、sitemap 与 surf 的每一跳也不例外。
 
-**面向智能体的接口会降级，不会崩溃。** `--agent` 给出稳定的 `{"ok":…}` 信封，`mcp_server.py` 暴露 7 个 MCP 工具，`--chunk-size` 按标题切分长文。缺少 Playwright 返回退出码 6，缺少 `pypdf` 返回退出码 7，站点没有 sitemap 则返回空结果并附说明。
+**面向智能体的接口会降级，不会崩溃。** `--agent` 给出稳定的 `{"ok":…}` 信封，`mcp_server.py` 暴露 8 个 MCP 工具，`--chunk-size` 按标题切分长文。缺少 Playwright 返回退出码 6，缺少 `pypdf` 返回退出码 7，站点没有 sitemap 则返回空结果并附说明。
 
 ---
 
@@ -88,7 +88,7 @@ claude plugin install web-forager --marketplace https://github.com/JiamingShi-Js
 **Claude Code** —— 在会话内执行（v2.1.275+），先用 URL 添加市场，并锁定发布 tag：
 
 ```text
-/plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git#v1.0.1
+/plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git#v1.0.2
 ```
 
 再安装它列出的条目：
@@ -100,7 +100,7 @@ claude plugin install web-forager --marketplace https://github.com/JiamingShi-Js
 **Codex** —— 把 URL 注册为 Git 市场；`--ref` 锁定发布 tag，HTTPS 换成 SSH 或本地路径同样可用：
 
 ```bash
-codex plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git --ref v1.0.1
+codex plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git --ref v1.0.2
 ```
 
 **Codex** —— 从该市场安装插件：
@@ -112,13 +112,13 @@ codex plugin add web-forager@web-forager-marketplace
 **dsh（DeepSeek Harness）** —— 直接从同一个仓库 URL 安装进指定 profile：
 
 ```bash
-dsh plugin --profile web add github:JiamingShi-JsPhys/web-forager#v1.0.1
+dsh plugin --profile web add github:JiamingShi-JsPhys/web-forager#v1.0.2
 ```
 
 **CodeBuddy** —— 先把 URL 加为 Git 市场：
 
 ```text
-/plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git#v1.0.1
+/plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git#v1.0.2
 ```
 
 再安装它列出的条目：
@@ -238,7 +238,7 @@ DOCX/XLSX/EPUB/CSV、RSS/Atom、sitemap 解析与 MCP 服务**无需额外依赖
 }
 ```
 
-工具：`web_fetch`、`web_search`、`web_surf`、`web_scholar`、`web_map`、`web_bilibili`、`web_clean`。直接测试协议：
+工具：`web_fetch`、`web_search`、`web_surf`、`web_scholar`、`web_map`、`web_bilibili`、`web_clean`、`web_doctor`。直接测试协议：
 
 ```bash
 printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
@@ -278,6 +278,18 @@ python run.py --action bili --mode feed --max-items 10
 
 ---
 
+### 响应结构
+
+`results` 是给智能体循环用的索引，不是每页正文的第二份拷贝。搜索时它只带
+`url`、`title`、`snippet`、`status`、`content_type`、`markdown_chars`、`tables`
+以及可能的 `warnings` 或 `error`；Markdown 正文只在 `pages` 里出现一次，单页
+`fetch` 则把它放在顶层。要旧行为（`results` 重复整份记录）加 `--full-results`
+（CLI）或 `fullResults: true`（MCP）。
+
+`--action doctor` 会逐项报告依赖的版本或安装命令，智能体拿到单薄页面时可以先
+自检再补装。
+
+
 ## 动作与退出码
 
 | 动作 | 用途 |
@@ -288,6 +300,7 @@ python run.py --action bili --mode feed --max-items 10
 | `surf` | 搜索或种子 URL，再按相关度做链接 BFS |
 | `scholar` | arXiv / Crossref / PubMed / DOI 记录 |
 | `map` | 从 robots.txt 与 sitemap 发现页面 URL |
+| `doctor` | 依赖自检：装了什么，该装什么 |
 
 | 退出码 | 含义 |
 |---|---|
@@ -331,7 +344,7 @@ web-forager/
 ├── package.json / index.js       npm + dsh 打包
 ├── cordis.patch.yml              dsh bundle 补丁
 ├── run.py                        CLI：fetch / clean / bili / surf / scholar / map
-├── mcp_server.py                 MCP stdio 服务（7 个工具）
+├── mcp_server.py                 MCP stdio 服务（8 个工具）
 ├── SKILL.md                      Claude Code 技能契约
 ├── commands/                     /fetch /surf /scholar /map
 ├── docs/DEPENDENCIES.md          各能力依赖矩阵
@@ -370,7 +383,7 @@ python -m pytest tests -q
 - **PDF 只读取文本层**：扫描件需要 OCR，本插件不做。
 - **学术 API 只返回元数据与摘要**：不返回全文；请遵守各平台条款。
 - **`--render auto` 是启发式判断**：可见文字过少加 SPA 标记。复杂站点可能仍需要 `--render always`，而 `--wait-for` / `--scroll` 只在装了 Playwright 时生效。
-- **搜索依赖公开结果页**：可用性随网络变化。搜狗可能弹人机验证，因此默认 `auto` 路由不含它。
+- **搜索依赖公开结果页**：可用性随网络变化。拉丁字母查询的默认 `auto` 路由不含搜狗，因为它可能弹人机验证；中文查询改走 360 与搜狗，只有两者都不可用时才回落到 Bing——Bing 会把带引号的中文短语按单字匹配。每个解析器都对结果页结构有假设，`tests/fixtures/` 下的离线夹具能在改版时报警，标题变成替换字符的结果会被丢弃。
 - **B 站只读公开页面**：不登录、不抓评论、不抓字幕、不访问私密列表。
 - **`surf` 只跟随普通链接**：不点按钮、不执行 JavaScript、不处理登录墙。
 - **robots.txt 不可达即拒绝**：这是 RFC 的保守做法。`--ignore-robots` 仅用于你已获得明确授权的资源。

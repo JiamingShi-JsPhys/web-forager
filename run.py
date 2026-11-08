@@ -77,7 +77,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--action",
         required=True,
-        choices=["fetch", "clean", "bili", "surf", "scholar", "map"],
+        choices=["fetch", "clean", "bili", "surf", "scholar", "map", "doctor"],
         help="operation to run",
     )
     parser.add_argument("--url", help="target URL, or a Bilibili BV/av id (fetch/clean/bili/surf/map)")
@@ -162,6 +162,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--user-agent", default=engine.DEFAULT_USER_AGENT, help="explicit User-Agent string")
     parser.add_argument("--format", choices=["json", "markdown"], default="json", help="stdout format")
+    parser.add_argument(
+        "--full-results",
+        action="store_true",
+        help=(
+            "repeat every page record inside results as well as pages "
+            "(1.0.1 behaviour; off by default because it doubles the response)"
+        ),
+    )
     parser.add_argument(
         "--agent",
         action="store_true",
@@ -356,16 +364,22 @@ def write_workspace(
 # ---------------------------------------------------------------------------
 
 
+def _envelope(action: str, payload: dict, args: argparse.Namespace) -> dict:
+    """Build the response envelope, honouring --full-results."""
+
+    return engine.build_envelope(action, payload, full_results=bool(getattr(args, "full_results", False)))
+
+
 def cmd_fetch(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
     if bool(args.url) == bool(args.query):
         raise ValueError("--action fetch needs exactly one of --url or --query")
 
     if args.url:
         page = engine.fetch_page(args.url, config)
-        return engine.build_envelope("fetch", page)
+        return _envelope("fetch", page, args)
 
     payload = engine.fetch_by_query(args.query, config, engine=args.engine)
-    return engine.build_envelope("fetch", payload)
+    return _envelope("fetch", payload, args)
 
 
 def _clean_chunks(payload: dict, config: engine.FetchConfig) -> dict:
@@ -529,7 +543,7 @@ def cmd_surf(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
         engine_name=args.engine,
         session=args.session or None,
     )
-    return engine.build_envelope("surf", payload)
+    return _envelope("surf", payload, args)
 
 
 def cmd_scholar(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
@@ -542,7 +556,7 @@ def cmd_scholar(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
         limit=max(1, args.num_results),
         sort=args.sort,
     )
-    return engine.build_envelope("scholar", payload)
+    return _envelope("scholar", payload, args)
 
 
 def cmd_map(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
@@ -554,7 +568,7 @@ def cmd_map(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
         limit=max(1, args.limit),
         max_sitemaps=max(1, args.max_sitemaps),
     )
-    return engine.build_envelope("map", payload)
+    return _envelope("map", payload, args)
 
 
 def cmd_bili(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
@@ -598,7 +612,13 @@ def cmd_bili(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
     else:  # pragma: no cover - argparse prevents this
         raise ValueError(f"unsupported Bilibili mode: {mode}")
 
-    return engine.build_envelope("bili", payload)
+    return _envelope("bili", payload, args)
+
+
+def cmd_doctor(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
+    """Report optional dependencies so an agent can install what is missing."""
+
+    return _envelope("doctor", engine.doctor_report(), args)
 
 
 def _fail(
@@ -639,8 +659,10 @@ def main(argv: list[str] | None = None) -> int:
             document = cmd_scholar(args, config)
         elif args.action == "map":
             document = cmd_map(args, config)
-        else:
+        elif args.action == "bili":
             document = cmd_bili(args, config)
+        else:
+            document = cmd_doctor(args, config)
     except engine.RobotsDenied as exc:
         return _fail(
             args,

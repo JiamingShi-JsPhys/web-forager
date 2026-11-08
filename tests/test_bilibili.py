@@ -103,12 +103,23 @@ def test_fetch_video_from_local_site(site: str) -> None:
     assert record["final_url"].endswith("/video/BV1xx411c7mD/index.html")
 
 
-def test_feed_from_local_page(site: str) -> None:
+def test_feed_from_local_page(site: str, monkeypatch: pytest.MonkeyPatch) -> None:
     config = engine.FetchConfig(delay=0.0, timeout=10.0, render="never")
+    enriched: list[str] = []
+
+    def fake_fetch_video(url: str, config: engine.FetchConfig, fetcher=None) -> dict:
+        # Cards always carry the canonical bilibili.com URL, which is what a
+        # caller of feed() wants. Enrichment is stubbed so this suite stays
+        # offline; the parsing path itself is real.
+        enriched.append(url)
+        return {"bvid": "BV1xx411c7mD", "url": url, "title": "测试视频"}
+
+    monkeypatch.setattr(bilibili, "fetch_video", fake_fetch_video)
     payload = bilibili.feed(config, limit=10, enrich=1, url=f"{site}/bili_home.html")
     assert len(payload["cards"]) == 2
     assert len(payload["videos"]) == 1
     assert payload["videos"][0]["bvid"] == "BV1xx411c7mD"
+    assert enriched == ["https://www.bilibili.com/video/BV1xx411c7mD/"]
 
 
 def test_related_from_local_video(site: str) -> None:

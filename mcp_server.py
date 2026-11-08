@@ -3,7 +3,7 @@
 
 No SDK is required: this speaks newline-delimited JSON-RPC 2.0 on stdin/stdout,
 implements ``initialize``, ``tools/list`` and ``tools/call``, and exposes the
-engine as seven tools.  Diagnostics go to stderr only, never to stdout.
+engine as eight tools.  Diagnostics go to stderr only, never to stdout.
 """
 
 from __future__ import annotations
@@ -35,6 +35,10 @@ _TOOLS: list[dict[str, Any]] = [
                 "render": {"type": "string", "enum": ["auto", "never", "always"]},
                 "include_tables": {"type": "boolean"},
                 "cache": {"type": "boolean"},
+                "fullResults": {
+                    "type": "boolean",
+                    "description": "Repeat every page record inside results as well as pages (1.0.1 behaviour; doubles the response).",
+                },
             },
             "required": ["url"],
         },
@@ -53,6 +57,10 @@ _TOOLS: list[dict[str, Any]] = [
                 "num_results": {"type": "integer", "minimum": 1, "maximum": 50},
                 "max_pages": {"type": "integer", "minimum": 0, "maximum": 20},
                 "search_pages": {"type": "integer", "minimum": 1, "maximum": 5},
+                "fullResults": {
+                    "type": "boolean",
+                    "description": "Repeat every page record inside results as well as pages (1.0.1 behaviour; doubles the response).",
+                },
             },
             "required": ["query"],
         },
@@ -70,6 +78,10 @@ _TOOLS: list[dict[str, Any]] = [
                 "follow": {"type": "string", "enum": ["same-site", "all", "none"]},
                 "session": {"type": "string"},
                 "engine": {"type": "string"},
+                "fullResults": {
+                    "type": "boolean",
+                    "description": "Repeat every page record inside results as well as pages (1.0.1 behaviour; doubles the response).",
+                },
             },
         },
     },
@@ -116,6 +128,11 @@ _TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "web_doctor",
+        "description": "Report which optional capabilities this installation can serve, with the install command for each missing one.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
         "name": "web_clean",
         "description": "Clean a local HTML, PDF, DOCX, XLSX, EPUB or CSV file into Markdown.",
         "inputSchema": {
@@ -131,6 +148,12 @@ _TOOLS: list[dict[str, Any]] = [
 ]
 
 _TOOL_NAMES = {tool["name"] for tool in _TOOLS}
+
+
+def _full_results(arguments: dict[str, Any]) -> bool:
+    """Whether to repeat every page body inside ``results`` as well as ``pages``."""
+
+    return bool(arguments.get("fullResults", False))
 
 
 def _config(arguments: dict[str, Any]) -> engine.FetchConfig:
@@ -156,7 +179,7 @@ def _tool_fetch(arguments: dict[str, Any]) -> dict[str, Any]:
     if not arguments.get("url"):
         raise ValueError("url is required")
     page = engine.fetch_page(str(arguments["url"]), config)
-    return engine.build_envelope("fetch", page)
+    return engine.build_envelope("fetch", page, full_results=_full_results(arguments))
 
 
 def _tool_search(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -185,6 +208,7 @@ def _tool_search(arguments: dict[str, Any]) -> dict[str, Any]:
     return engine.build_envelope(
         "fetch",
         {"query": query, "engine": str(arguments.get("engine", "auto")), "search_results": results, "pages": pages},
+        full_results=_full_results(arguments),
     )
 
 
@@ -202,7 +226,7 @@ def _tool_surf(arguments: dict[str, Any]) -> dict[str, Any]:
         engine_name=str(arguments.get("engine", "auto")),
         session=arguments.get("session") or None,
     )
-    return engine.build_envelope("surf", payload)
+    return engine.build_envelope("surf", payload, full_results=_full_results(arguments))
 
 
 def _tool_scholar(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -258,6 +282,10 @@ def _tool_bilibili(arguments: dict[str, Any]) -> dict[str, Any]:
     return engine.build_envelope("bili", payload)
 
 
+def _tool_doctor(arguments: dict[str, Any]) -> dict[str, Any]:
+    return engine.build_envelope("doctor", engine.doctor_report())
+
+
 def _tool_clean(arguments: dict[str, Any]) -> dict[str, Any]:
     config = _config(arguments)
     path = Path(str(arguments.get("path", ""))).expanduser()
@@ -307,6 +335,7 @@ _DISPATCH: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "web_scholar": _tool_scholar,
     "web_map": _tool_map,
     "web_bilibili": _tool_bilibili,
+    "web_doctor": _tool_doctor,
     "web_clean": _tool_clean,
 }
 

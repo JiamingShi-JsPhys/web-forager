@@ -1,9 +1,9 @@
 ---
 trigger: always_on
-description: web-forager operating rules (v1.0.1)
+description: web-forager operating rules (v1.0.2)
 ---
 
-# web-forager — agent operating rules (v1.0.1)
+# web-forager — agent operating rules (v1.0.2)
 
 web-forager is a clean-room, robots-aware public-web intelligence layer. It
 searches, fetches, extracts and browses the open web to collect public information; it
@@ -26,7 +26,7 @@ the MCP server and `SKILL.md` share one engine and one robots/cache pipeline.
 - `python run.py --action scholar --source arxiv|crossref|pubmed|doi --query <TEXT>`
 - `python run.py --action map --url <SITE>` — sitemap URL discovery
 - `python run.py --action bili --mode feed|video|search|related|surf`
-- `python mcp_server.py` — stdio JSON-RPC with the same seven capabilities
+- `python mcp_server.py` — stdio JSON-RPC with the same capabilities
 - `.dsh-plugin/index.js` — non-Python harness entry (`apply(ctx)`)
 
 Add `--agent` to any CLI action for a machine-readable

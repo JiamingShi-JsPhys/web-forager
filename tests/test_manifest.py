@@ -22,7 +22,7 @@ ALLOWED_DEPENDENCIES = {"requests", "beautifulsoup4", "trafilatura", "playwright
 def test_manifest_is_complete() -> None:
     manifest = json.loads((PLUGIN_ROOT / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["name"] == "web-forager"
-    assert manifest["version"] == "1.0.1"
+    assert manifest["version"] == "1.0.2"
     assert manifest["license"] == "MIT"
     assert set(manifest["actions"]) == {"fetch", "clean", "bili", "surf", "scholar", "map"}
     assert (PLUGIN_ROOT / manifest["entrypoint"]).is_file()
@@ -170,7 +170,7 @@ def test_multi_platform_manifests() -> None:
     for folder in (".claude-plugin", ".codex-plugin", ".codebuddy-plugin", ".dsh-plugin"):
         data = json.loads((PLUGIN_ROOT / folder / "plugin.json").read_text(encoding="utf-8"))
         assert data["name"] == "web-forager"
-        assert data["version"] == "1.0.1"
+        assert data["version"] == "1.0.2"
 
     for folder in (".claude-plugin", ".codex-plugin", ".codebuddy-plugin"):
         market = json.loads((PLUGIN_ROOT / folder / "marketplace.json").read_text(encoding="utf-8"))
@@ -194,6 +194,7 @@ def test_mcp_registration() -> None:
         "web_map",
         "web_bilibili",
         "web_clean",
+        "web_doctor",
     }
 
 

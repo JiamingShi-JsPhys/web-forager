@@ -316,6 +316,7 @@ def test_mcp_initialize_and_tools_list() -> None:
         "web_map",
         "web_bilibili",
         "web_clean",
+        "web_doctor",
     }
 
 

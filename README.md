@@ -10,7 +10,7 @@
 
 **English** · [简体中文](README_zh.md)
 
-**Version:** 1.0.1 | **CLI actions:** 6 | **MCP tools:** 7
+**Version:** 1.0.2 | **CLI actions:** 6 | **MCP tools:** 7
 
 ---
 
@@ -32,7 +32,7 @@ In the current agent ecosystem, tools solve one half of the problem: a search AP
 
 **Compliance is built into the fetcher, not bolted on.** robots.txt (RFC 9309 subset), per-origin rate limiting, response-size caps, redirect limits and an explicit information-gathering User-Agent apply to every request, including search, sitemap and surf hops.
 
-**Agent-first interfaces degrade instead of crashing.** `--agent` yields a stable `{"ok":…}` envelope, `mcp_server.py` exposes seven MCP tools, and `--chunk-size` splits long pages by heading. Missing Playwright returns exit code 6, missing `pypdf` returns exit code 7, and a site without a sitemap returns an empty result with a note.
+**Agent-first interfaces degrade instead of crashing.** `--agent` yields a stable `{"ok":…}` envelope, `mcp_server.py` exposes eight MCP tools, and `--chunk-size` splits long pages by heading. Missing Playwright returns exit code 6, missing `pypdf` returns exit code 7, and a site without a sitemap returns an empty result with a note.
 
 ---
 
@@ -88,7 +88,7 @@ claude plugin install web-forager --marketplace https://github.com/JiamingShi-Js
 **Claude Code** — from inside a session (v2.1.275+), add the marketplace from the URL first, pinned to the release tag:
 
 ```text
-/plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git#v1.0.1
+/plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git#v1.0.2
 ```
 
 Then install the entry it lists:
@@ -100,7 +100,7 @@ Then install the entry it lists:
 **Codex** — register the URL as a Git marketplace; `--ref` pins the release tag, and an SSH URL or a local path works in place of the HTTPS one:
 
 ```bash
-codex plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git --ref v1.0.1
+codex plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git --ref v1.0.2
 ```
 
 **Codex** — install the plugin from that marketplace:
@@ -112,13 +112,13 @@ codex plugin add web-forager@web-forager-marketplace
 **dsh (DeepSeek Harness)** — installs from the same repository URL straight into a profile:
 
 ```bash
-dsh plugin --profile web add github:JiamingShi-JsPhys/web-forager#v1.0.1
+dsh plugin --profile web add github:JiamingShi-JsPhys/web-forager#v1.0.2
 ```
 
 **CodeBuddy** — add the URL as a Git marketplace:
 
 ```text
-/plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git#v1.0.1
+/plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git#v1.0.2
 ```
 
 Then install the entry it lists:
@@ -238,7 +238,7 @@ Four commands put the common actions behind a single line:
 }
 ```
 
-Tools: `web_fetch`, `web_search`, `web_surf`, `web_scholar`, `web_map`, `web_bilibili`, `web_clean`. Test the protocol directly:
+Tools: `web_fetch`, `web_search`, `web_surf`, `web_scholar`, `web_map`, `web_bilibili`, `web_clean`, `web_doctor`. Test the protocol directly:
 
 ```bash
 printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
@@ -278,6 +278,19 @@ python run.py --action bili --mode feed --max-items 10
 
 ---
 
+### Response shape
+
+`results` is the list an agent loops over, and it is an index, not a second copy
+of every page. For a search it carries `url`, `title`, `snippet`, `status`,
+`content_type`, `markdown_chars`, `tables` and any `warnings` or `error`; the
+Markdown body lives once, in `pages`, and a single `fetch` keeps it at the top
+level. Pass `--full-results` (CLI) or `fullResults: true` (MCP) to get the old
+shape, where `results` repeats the full records.
+
+`--action doctor` reports every dependency with its version or the command that
+installs it, so an agent that received a thin page can fix the cause itself.
+
+
 ## Actions and exit codes
 
 | Action | Purpose |
@@ -288,6 +301,7 @@ python run.py --action bili --mode feed --max-items 10
 | `surf` | search or seed URL, then ranked link BFS |
 | `scholar` | arXiv / Crossref / PubMed / DOI records |
 | `map` | page URLs from robots.txt and sitemaps |
+| `doctor` | dependency report: what is installed, what to install |
 
 | Exit code | Meaning |
 |---|---|
@@ -331,7 +345,7 @@ web-forager/
 ├── package.json / index.js       npm + dsh packaging
 ├── cordis.patch.yml              dsh bundle patch
 ├── run.py                        CLI: fetch / clean / bili / surf / scholar / map
-├── mcp_server.py                 MCP stdio server (7 tools)
+├── mcp_server.py                 MCP stdio server (8 tools)
 ├── SKILL.md                      Claude Code skill contract
 ├── commands/                     /fetch /surf /scholar /map
 ├── docs/DEPENDENCIES.md          per-capability dependency matrix
@@ -370,7 +384,7 @@ Honest edge cases — read before relying on any output:
 - **PDF extraction reads the text layer only**: scanned PDFs need OCR, which this plugin does not do.
 - **Scholarly APIs return metadata and abstracts**: they do not return full papers; respect each platform's terms.
 - **`--render auto` is a heuristic**: short visible text plus SPA markers. Complex sites may need `--render always`, and `--wait-for` / `--scroll` only work when Playwright is installed.
-- **Search depends on public result pages**: availability varies by network. Sogou may show a human-verification page and is excluded from the default `auto` route.
+- **Search depends on public result pages**: availability varies by network. Sogou may show a human-verification page and is excluded from the default `auto` route for Latin queries. A mostly-Chinese query routes to 360 and Sogou and reaches for Bing only if both fail, because Bing treats a quoted Chinese phrase as single characters. Each parser assumes a result-page structure; the offline fixtures under `tests/fixtures/` catch a redesign, and titles that come back as replacement characters are dropped.
 - **Bilibili reads public pages only**: no login, comments, subtitles or private lists.
 - **`surf` follows ordinary links only**: it does not click buttons, execute JavaScript or handle login walls.
 - **robots.txt unreachable means deny**: that is the conservative RFC behaviour. `--ignore-robots` is only for resources you are explicitly authorised to access.

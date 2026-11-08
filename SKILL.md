@@ -1,6 +1,6 @@
 ---
 name: web-forager
-version: 1.0.1
+version: 1.0.2
 description: >
   Polite, robots-aware web information gathering: search 360/Bing/Sogou,
   read HTML/PDF/DOCX/XLSX/EPUB/CSV and RSS/Atom, collect public pages from
@@ -10,7 +10,7 @@ description: >
   PubMed/DOI. Ships a CLI, an OpenCLI-style --agent envelope and a stdio MCP
   server. Optional Playwright rendering for JavaScript-heavy pages.
 metadata:
-  version: 1.0.1
+  version: 1.0.2
   author: Jiaming Shi
   license: MIT
   entry_point: python run.py
@@ -31,7 +31,8 @@ and (optional) `playwright` / `pypdf` are used. No GPL/AGPL dependency.
 - **Optional:** playwright (JavaScript rendering), pypdf (PDF text)
 - **Standard-library formats:** DOCX, XLSX, EPUB, CSV, RSS, Atom, sitemap
 - **MCP:** `python mcp_server.py` (stdio JSON-RPC; tools: web_fetch,
-  web_search, web_surf, web_scholar, web_map, web_bilibili, web_clean)
+  web_search, web_surf, web_scholar, web_map, web_bilibili, web_clean,
+  web_doctor)
 
 > **启用 JS 渲染：** 用户需自行运行
 > `pip install playwright && playwright install chromium`。
@@ -131,8 +132,8 @@ CAPTCHA/Cloudflare bypass, or high-concurrency crawling.
 
 | Action | Input | Output |
 |---|---|---|
-| `fetch --url` | one http(s) URL | JSON with `metadata`, `markdown`, `tables`, `warnings` |
-| `fetch --query` | keywords + engine | JSON with `search_results` and one record per fetched page |
+| `fetch --url` | one http(s) URL | JSON with `metadata`, `markdown`, `tables`, `warnings`, plus a compact `results` index (use `--full-results` for full records) |
+| `fetch --query` | keywords + engine | JSON with `search_results`, `pages` (full records) and a compact `results` index |
 | `clean --input` | local HTML/PDF/DOCX/XLSX/EPUB/CSV file | JSON or Markdown |
 | `clean --url` | http(s) URL (any supported type) | JSON or Markdown |
 | `clean` (stdin) | HTML/PDF/Office bytes | JSON or Markdown |
@@ -142,6 +143,7 @@ CAPTCHA/Cloudflare bypass, or high-concurrency crawling.
 | `map --url` | site, sitemap or robots.txt URL | URL inventory + sitemap sources |
 | `bili --mode feed` | home page | feed cards + optionally fetched videos |
 | `bili --mode video` | BV id or video URL | one normalised video record |
+| `doctor` | nothing | dependency report with install hints |
 | `bili --mode related` | BV id or video URL | recommendation list |
 | `bili --mode surf` | BV id or keyword | relationship-chain traversal |
 | `bili --mode search` | keyword | search results + fetched videos |
@@ -213,7 +215,7 @@ python mcp_server.py
 
 Newline-delimited JSON-RPC 2.0 on stdin/stdout; `.mcp.json` registers it for
 Claude Code. Tools: `web_fetch`, `web_search`, `web_surf`, `web_scholar`,
-`web_map`, `web_bilibili`, `web_clean`. Tool failures return `isError: true`
+`web_map`, `web_bilibili`, `web_clean`, `web_doctor`. Tool failures return `isError: true`
 with `{"ok":false,"error":{...}}` as text; protocol errors use JSON-RPC codes.
 
 ## Tests

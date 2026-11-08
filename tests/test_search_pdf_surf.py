@@ -161,7 +161,7 @@ def test_cli_fetch_pdf_url(site: str) -> None:
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert payload["results"][0]["content_type"] == "application/pdf"
-    assert "Hello web-forager PDF" in payload["results"][0]["markdown"]
+    assert "Hello web-forager PDF" in payload["markdown"]
 
 
 # ---------------------------------------------------------------------------
@@ -261,3 +261,82 @@ def test_agent_success_envelope_for_clean() -> None:
     assert payload["ok"] is True
     assert payload["data"]["action"] == "clean"
     assert payload["data"]["markdown"]
+
+
+# ---------------------------------------------------------------------------
+# Language-aware routing and result hygiene (1.0.2)
+# ---------------------------------------------------------------------------
+
+
+def _fake_engine(monkeypatch, failing: set[str] | None = None):
+    calls: list[str] = []
+    failing = failing or set()
+
+    def fake_search_one(name, query, config, limit, fetcher, pages=1):
+        calls.append(name)
+        if name in failing:
+            raise engine.FetchError(f"{name} returned a verification page")
+        return [
+            {
+                "title": f"{name} 结果",
+                "url": f"https://{name}.example/result",
+                "snippet": "",
+                "source": name,
+            }
+        ]
+
+    monkeypatch.setattr(engine, "_search_one", fake_search_one)
+    return calls
+
+
+def test_auto_routes_chinese_queries_away_from_bing(monkeypatch) -> None:
+    calls = _fake_engine(monkeypatch)
+    config = engine.FetchConfig(delay=0.0)
+    fetcher = engine.HttpFetcher(config)
+    try:
+        engine.search("杭州西湖一日游攻略", config, fetcher=fetcher)
+    finally:
+        fetcher.close()
+    assert calls == ["360", "sogou"]
+    assert "bing" not in calls
+
+
+def test_auto_keeps_bing_for_latin_queries(monkeypatch) -> None:
+    calls = _fake_engine(monkeypatch)
+    config = engine.FetchConfig(delay=0.0)
+    fetcher = engine.HttpFetcher(config)
+    try:
+        engine.search("reinforcement learning", config, fetcher=fetcher)
+    finally:
+        fetcher.close()
+    assert calls == ["360", "bing"]
+
+
+def test_chinese_query_still_falls_back_to_bing(monkeypatch) -> None:
+    calls = _fake_engine(monkeypatch, failing={"360", "sogou"})
+    config = engine.FetchConfig(delay=0.0)
+    fetcher = engine.HttpFetcher(config)
+    try:
+        results = engine.search("杭州西湖一日游攻略", config, fetcher=fetcher)
+    finally:
+        fetcher.close()
+    assert calls == ["360", "sogou", "bing"]
+    assert results and results[0]["source"] == "bing"
+
+
+def test_dedupe_drops_garbled_titles() -> None:
+    items = [
+        {"title": "\ufffd\ufffd\ufffd\ufffd", "url": "https://a.example/"},
+        {"title": "正常标题", "url": "https://b.example/"},
+        {"title": "???", "url": "https://c.example/"},
+        {"url": "https://d.example/"},
+    ]
+    kept = engine.dedupe_results(items, limit=8)
+    assert [item["url"] for item in kept] == ["https://b.example/", "https://d.example/"]
+
+
+def test_prefers_chinese_engines_threshold() -> None:
+    assert engine.prefers_chinese_engines("杭州西湖一日游攻略") is True
+    assert engine.prefers_chinese_engines("Python 教程") is False
+    assert engine.prefers_chinese_engines("reinforcement learning") is False
+    assert engine.prefers_chinese_engines("") is False
