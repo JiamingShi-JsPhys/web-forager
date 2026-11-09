@@ -3,6 +3,10 @@
     "web-forager": {
       "command": "python",
       "args": ["${CLAUDE_PLUGIN_ROOT}/mcp_server.py"]
+    },
+    "web-forager-browser": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/browser/mcp_server.js"]
     }
   }
 }

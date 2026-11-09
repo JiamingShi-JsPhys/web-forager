@@ -22,7 +22,7 @@ ALLOWED_DEPENDENCIES = {"requests", "beautifulsoup4", "trafilatura", "playwright
 def test_manifest_is_complete() -> None:
     manifest = json.loads((PLUGIN_ROOT / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["name"] == "web-forager"
-    assert manifest["version"] == "1.0.2"
+    assert manifest["version"] == "1.1.0"
     assert manifest["license"] == "MIT"
     assert set(manifest["actions"]) == {"fetch", "clean", "bili", "surf", "scholar", "map"}
     assert (PLUGIN_ROOT / manifest["entrypoint"]).is_file()
@@ -170,7 +170,7 @@ def test_multi_platform_manifests() -> None:
     for folder in (".claude-plugin", ".codex-plugin", ".codebuddy-plugin", ".dsh-plugin"):
         data = json.loads((PLUGIN_ROOT / folder / "plugin.json").read_text(encoding="utf-8"))
         assert data["name"] == "web-forager"
-        assert data["version"] == "1.0.2"
+        assert data["version"] == "1.1.0"
 
     for folder in (".claude-plugin", ".codex-plugin", ".codebuddy-plugin"):
         market = json.loads((PLUGIN_ROOT / folder / "marketplace.json").read_text(encoding="utf-8"))
@@ -196,6 +196,40 @@ def test_mcp_registration() -> None:
         "web_clean",
         "web_doctor",
     }
+
+
+def test_browser_mode_is_registered() -> None:
+    manifest = json.loads((PLUGIN_ROOT / "manifest.json").read_text(encoding="utf-8"))
+    browser = manifest["browser"]
+    assert browser["entrypoint"] == "browser/run.js"
+    assert browser["runtime"] == "node >= 18"
+    assert (PLUGIN_ROOT / browser["entrypoint"]).is_file()
+    assert (PLUGIN_ROOT / browser["mcp"]["entrypoint"]).is_file()
+    assert browser["mcp"]["server"] == "web-forager-browser"
+    assert set(browser["playbooks"]) == {
+        "bili-feed",
+        "bili-video",
+        "bili-chain",
+        "bili-danmaku",
+        "zhihu-dig",
+        "xhs-dig",
+        "search-dig",
+    }
+    assert browser["backends"] == ["iab", "extension", "cdp"]
+    assert set(browser["mcp"]["tools"]) == {"browser_list", "browser_run", "browser_session"}
+
+    config = json.loads((PLUGIN_ROOT / ".mcp.json").read_text(encoding="utf-8"))
+    assert set(config["mcpServers"]) == {"web-forager", "web-forager-browser"}
+    server = config["mcpServers"]["web-forager-browser"]
+    assert server["command"] == "node"
+    assert server["args"][0].endswith("/browser/mcp_server.js")
+
+
+def test_browser_layer_drops_the_old_product_name() -> None:
+    browser_root = PLUGIN_ROOT / "browser"
+    for relative in ("run.js", "mcp_server.js", "lib/backend.js", "lib/session.js", "lib/record.js"):
+        text = (browser_root / relative).read_text(encoding="utf-8")
+        assert "web-actor" not in text.lower(), relative
 
 
 def test_docs_document_playwright_and_workspace() -> None:

@@ -1,9 +1,9 @@
 ---
-description: web-forager operating rules (v1.0.2)
+description: web-forager operating rules (v1.1.0)
 alwaysApply: true
 ---
 
-# web-forager — agent operating rules (v1.0.2)
+# web-forager — agent operating rules (v1.1.0)
 
 web-forager is a clean-room, robots-aware public-web intelligence layer. It
 searches, fetches, extracts and browses the open web to collect public information; it
@@ -26,6 +26,7 @@ the MCP server and `SKILL.md` share one engine and one robots/cache pipeline.
 - `python run.py --action scholar --source arxiv|crossref|pubmed|doi --query <TEXT>`
 - `python run.py --action map --url <SITE>` — sitemap URL discovery
 - `python run.py --action bili --mode feed|video|search|related|surf`
+- `python run.py --action doctor` — dependency report with install hints
 - `python mcp_server.py` — stdio JSON-RPC with the same capabilities
 - `.dsh-plugin/index.js` — non-Python harness entry (`apply(ctx)`)
 
@@ -62,5 +63,15 @@ Add `--agent` to any CLI action for a machine-readable
   follows existing links only; it does not click buttons, submit forms or run
   page JavaScript.
 - **Cite what you use** and respect each site's Terms of Service and copyright.
+
+## Browser mode (Node 18+)
+
+`node browser/run.js --playbook <name>` drives a real browser through
+`WEB_FORAGER_BRIDGE`. It is read-only by default; write-like controls need
+`--allow-write` after explicit authorisation. Without a bridge, a live run
+exits 3. `browser/mcp_server.js` exposes the same moves as MCP tools.
+`--strict-robots` checks robots.txt before every navigation. Exit 8 means the
+page was read but nothing matching the playbook was found (`degraded`, records
+still attached); exit 9 means an anti-bot or error page replaced it (`blocked`).
 
 Full contract: [`SKILL.md`](SKILL.md) and [`README.md`](README.md).

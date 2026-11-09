@@ -1,0 +1,717 @@
+{
+ "recorded_from": "https://www.bilibili.com/",
+ "recorded_at": "2026-11-07",
+ "recorded_with": "tests/tools/html-to-snapshot.py over the public HTML",
+ "url": "https://www.bilibili.com/",
+ "title": "哔哩哔哩 (゜-゜)つロ 干杯~-bilibili",
+ "nodes": [
+  {
+   "role": "heading",
+   "name": "⚡️ 疯 狂 闪 身 步 ⚡️",
+   "locator": "[data-web-forager-browser-id=\"1\"]"
+  },
+  {
+   "role": "heading",
+   "name": "“灭建国是谁呀😄？？”",
+   "locator": "[data-web-forager-browser-id=\"2\"]"
+  },
+  {
+   "role": "heading",
+   "name": "全球笑点下降2000倍而我不变【第二集】",
+   "locator": "[data-web-forager-browser-id=\"3\"]"
+  },
+  {
+   "role": "heading",
+   "name": "LibTV把AI视频成本打下来了！",
+   "locator": "[data-web-forager-browser-id=\"4\"]"
+  },
+  {
+   "role": "heading",
+   "name": "洗衣机如何演奏《雨爱》？",
+   "locator": "[data-web-forager-browser-id=\"5\"]"
+  },
+  {
+   "role": "heading",
+   "name": "琵琶曲，但是只用一根皮筋弹：",
+   "locator": "[data-web-forager-browser-id=\"6\"]"
+  },
+  {
+   "role": "heading",
+   "name": "师父！有这一身功夫，可够下山闯江湖了？ | 宜春",
+   "locator": "[data-web-forager-browser-id=\"7\"]"
+  },
+  {
+   "role": "heading",
+   "name": "seedance 2.5 限时即免！",
+   "locator": "[data-web-forager-browser-id=\"8\"]"
+  },
+  {
+   "role": "heading",
+   "name": "新250配新刀",
+   "locator": "[data-web-forager-browser-id=\"9\"]"
+  },
+  {
+   "role": "heading",
+   "name": "当你让4个AI各自造一个MC...",
+   "locator": "[data-web-forager-browser-id=\"10\"]"
+  },
+  {
+   "role": "link",
+   "name": "首页",
+   "locator": "[data-web-forager-browser-id=\"11\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com"
+  },
+  {
+   "role": "link",
+   "name": "番剧",
+   "locator": "[data-web-forager-browser-id=\"12\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/anime/"
+  },
+  {
+   "role": "link",
+   "name": "直播",
+   "locator": "[data-web-forager-browser-id=\"13\"]",
+   "href": "https://www.bilibili.com//live.bilibili.com"
+  },
+  {
+   "role": "link",
+   "name": "游戏中心",
+   "locator": "[data-web-forager-browser-id=\"14\"]",
+   "href": "https://www.bilibili.com//game.bilibili.com/platform"
+  },
+  {
+   "role": "link",
+   "name": "会员购",
+   "locator": "[data-web-forager-browser-id=\"15\"]",
+   "href": "https://www.bilibili.com//show.bilibili.com/platform/home.html?msource=pc_web"
+  },
+  {
+   "role": "link",
+   "name": "漫画",
+   "locator": "[data-web-forager-browser-id=\"16\"]",
+   "href": "https://www.bilibili.com//manga.bilibili.com?from=bill_top_mnav"
+  },
+  {
+   "role": "link",
+   "name": "赛事",
+   "locator": "[data-web-forager-browser-id=\"17\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/match/home/"
+  },
+  {
+   "role": "link",
+   "name": "下载客户端",
+   "locator": "[data-web-forager-browser-id=\"18\"]",
+   "href": "https://www.bilibili.com//app.bilibili.com/"
+  },
+  {
+   "role": "link",
+   "name": "动态",
+   "locator": "[data-web-forager-browser-id=\"19\"]",
+   "href": "https://www.bilibili.com//t.bilibili.com"
+  },
+  {
+   "role": "link",
+   "name": "热门",
+   "locator": "[data-web-forager-browser-id=\"20\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/v/popular/all"
+  },
+  {
+   "role": "link",
+   "name": "电影",
+   "locator": "[data-web-forager-browser-id=\"21\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/movie/"
+  },
+  {
+   "role": "link",
+   "name": "国创",
+   "locator": "[data-web-forager-browser-id=\"22\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/guochuang/"
+  },
+  {
+   "role": "link",
+   "name": "电视剧",
+   "locator": "[data-web-forager-browser-id=\"23\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/tv/"
+  },
+  {
+   "role": "link",
+   "name": "综艺",
+   "locator": "[data-web-forager-browser-id=\"24\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/variety/"
+  },
+  {
+   "role": "link",
+   "name": "纪录片",
+   "locator": "[data-web-forager-browser-id=\"25\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/documentary/"
+  },
+  {
+   "role": "link",
+   "name": "动画",
+   "locator": "[data-web-forager-browser-id=\"26\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/c/douga/"
+  },
+  {
+   "role": "link",
+   "name": "游戏",
+   "locator": "[data-web-forager-browser-id=\"27\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/c/game/"
+  },
+  {
+   "role": "link",
+   "name": "鬼畜",
+   "locator": "[data-web-forager-browser-id=\"28\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/c/kichiku/"
+  },
+  {
+   "role": "link",
+   "name": "音乐",
+   "locator": "[data-web-forager-browser-id=\"29\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/c/music/"
+  },
+  {
+   "role": "link",
+   "name": "舞蹈",
+   "locator": "[data-web-forager-browser-id=\"30\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/c/dance/"
+  },
+  {
+   "role": "link",
+   "name": "影视",
+   "locator": "[data-web-forager-browser-id=\"31\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/c/cinephile/"
+  },
+  {
+   "role": "link",
+   "name": "娱乐",
+   "locator": "[data-web-forager-browser-id=\"32\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/c/ent/"
+  },
+  {
+   "role": "link",
+   "name": "知识",
+   "locator": "[data-web-forager-browser-id=\"33\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/c/knowledge/"
+  },
+  {
+   "role": "link",
+   "name": "科技数码",
+   "locator": "[data-web-forager-browser-id=\"34\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/c/tech/"
+  },
+  {
+   "role": "link",
+   "name": "资讯",
+   "locator": "[data-web-forager-browser-id=\"35\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/c/information/"
+  },
+  {
+   "role": "link",
+   "name": "美食",
+   "locator": "[data-web-forager-browser-id=\"36\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/c/food/"
+  },
+  {
+   "role": "link",
+   "name": "小剧场",
+   "locator": "[data-web-forager-browser-id=\"37\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/c/shortplay/"
+  },
+  {
+   "role": "link",
+   "name": "汽车",
+   "locator": "[data-web-forager-browser-id=\"38\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/c/car"
+  },
+  {
+   "role": "link",
+   "name": "时尚美妆",
+   "locator": "[data-web-forager-browser-id=\"39\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/c/fashion/"
+  },
+  {
+   "role": "link",
+   "name": "体育运动",
+   "locator": "[data-web-forager-browser-id=\"40\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/c/sports/"
+  },
+  {
+   "role": "link",
+   "name": "动物",
+   "locator": "[data-web-forager-browser-id=\"41\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/c/animal/"
+  },
+  {
+   "role": "link",
+   "name": "vlog",
+   "locator": "[data-web-forager-browser-id=\"42\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/c/vlog/"
+  },
+  {
+   "role": "link",
+   "name": "绘画",
+   "locator": "[data-web-forager-browser-id=\"43\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/c/painting/"
+  },
+  {
+   "role": "link",
+   "name": "人工智能",
+   "locator": "[data-web-forager-browser-id=\"44\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/c/ai/"
+  },
+  {
+   "role": "link",
+   "name": "家装房产",
+   "locator": "[data-web-forager-browser-id=\"45\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/c/home/"
+  },
+  {
+   "role": "link",
+   "name": "户外",
+   "locator": "[data-web-forager-browser-id=\"46\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/c/outdoors/"
+  },
+  {
+   "role": "link",
+   "name": "健身",
+   "locator": "[data-web-forager-browser-id=\"47\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/c/gym/"
+  },
+  {
+   "role": "link",
+   "name": "手工",
+   "locator": "[data-web-forager-browser-id=\"48\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/c/handmake/"
+  },
+  {
+   "role": "link",
+   "name": "旅游出行",
+   "locator": "[data-web-forager-browser-id=\"49\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/c/travel/"
+  },
+  {
+   "role": "link",
+   "name": "三农",
+   "locator": "[data-web-forager-browser-id=\"50\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/c/rural/"
+  },
+  {
+   "role": "link",
+   "name": "亲子",
+   "locator": "[data-web-forager-browser-id=\"51\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/c/parenting/"
+  },
+  {
+   "role": "link",
+   "name": "健康",
+   "locator": "[data-web-forager-browser-id=\"52\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/c/health/"
+  },
+  {
+   "role": "link",
+   "name": "情感",
+   "locator": "[data-web-forager-browser-id=\"53\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/c/emotion/"
+  },
+  {
+   "role": "link",
+   "name": "生活兴趣",
+   "locator": "[data-web-forager-browser-id=\"54\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/c/life_joy/"
+  },
+  {
+   "role": "link",
+   "name": "生活经验",
+   "locator": "[data-web-forager-browser-id=\"55\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/c/life_experience/"
+  },
+  {
+   "role": "link",
+   "name": "公益",
+   "locator": "[data-web-forager-browser-id=\"56\"]",
+   "href": "https://www.bilibili.com//love.bilibili.com"
+  },
+  {
+   "role": "link",
+   "name": "超高清",
+   "locator": "[data-web-forager-browser-id=\"57\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/blackboard/era/Vp41b8bsU9Wkog3X.html"
+  },
+  {
+   "role": "link",
+   "name": "视频播客",
+   "locator": "[data-web-forager-browser-id=\"58\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/blackboard/era/jpyPhRRrMn3fmZ2B.html"
+  },
+  {
+   "role": "link",
+   "name": "专栏",
+   "locator": "[data-web-forager-browser-id=\"59\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/read/home/"
+  },
+  {
+   "role": "link",
+   "name": "活动",
+   "locator": "[data-web-forager-browser-id=\"60\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/blackboard/era/reward-activity-list-page.html#/list"
+  },
+  {
+   "role": "link",
+   "name": "课堂",
+   "locator": "[data-web-forager-browser-id=\"61\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/cheese/?csource=common_hp_channelclass_icon"
+  },
+  {
+   "role": "link",
+   "name": "社区中心",
+   "locator": "[data-web-forager-browser-id=\"62\"]",
+   "href": "https://www.bilibili.com//www.bilibili.com/blackboard/activity-5zJxM3spoS.html"
+  },
+  {
+   "role": "link",
+   "name": "新歌热榜",
+   "locator": "[data-web-forager-browser-id=\"63\"]",
+   "href": "https://www.bilibili.com//music.bilibili.com/pc/music-center/"
+  },
+  {
+   "role": "link",
+   "name": "宋玉替友人送信，韩立得意外之约",
+   "locator": "[data-web-forager-browser-id=\"64\"]",
+   "href": "https://www.bilibili.com/bangumi/play/ep3854823"
+  },
+  {
+   "role": "link",
+   "name": "1195万 2196 01:15",
+   "locator": "[data-web-forager-browser-id=\"65\"]",
+   "href": "https://www.bilibili.com/video/BV17pHB6tEtT?trackid=web_pegasus_0.router-web-pegasus-2479516-gfll4.1794044380189.466"
+  },
+  {
+   "role": "link",
+   "name": "⚡️ 疯 狂 闪 身 步 ⚡️",
+   "locator": "[data-web-forager-browser-id=\"66\"]",
+   "href": "https://www.bilibili.com/video/BV17pHB6tEtT?trackid=web_pegasus_0.router-web-pegasus-2479516-gfll4.1794044380189.466"
+  },
+  {
+   "role": "link",
+   "name": "伢伢gagako · 10月4日",
+   "locator": "[data-web-forager-browser-id=\"67\"]",
+   "href": "https://www.bilibili.com//space.bilibili.com/632887"
+  },
+  {
+   "role": "link",
+   "name": "155.6万 754 01:26",
+   "locator": "[data-web-forager-browser-id=\"68\"]",
+   "href": "https://www.bilibili.com/video/BV18cxv6SEe7?trackid=web_pegasus_0.router-web-pegasus-2479516-gfll4.1794044380189.466"
+  },
+  {
+   "role": "link",
+   "name": "“灭建国是谁呀😄？？”",
+   "locator": "[data-web-forager-browser-id=\"69\"]",
+   "href": "https://www.bilibili.com/video/BV18cxv6SEe7?trackid=web_pegasus_0.router-web-pegasus-2479516-gfll4.1794044380189.466"
+  },
+  {
+   "role": "link",
+   "name": "鸡鸡·夫斯基 · 10月30日",
+   "locator": "[data-web-forager-browser-id=\"70\"]",
+   "href": "https://www.bilibili.com//space.bilibili.com/548824"
+  },
+  {
+   "role": "link",
+   "name": "949.2万 2.2万 16:08",
+   "locator": "[data-web-forager-browser-id=\"71\"]",
+   "href": "https://www.bilibili.com/video/BV1TxxC6vEo4?trackid=web_pegasus_0.router-web-pegasus-2479516-gfll4.1794044380189.466"
+  },
+  {
+   "role": "link",
+   "name": "全球笑点下降2000倍而我不变【第二集】",
+   "locator": "[data-web-forager-browser-id=\"72\"]",
+   "href": "https://www.bilibili.com/video/BV1TxxC6vEo4?trackid=web_pegasus_0.router-web-pegasus-2479516-gfll4.1794044380189.466"
+  },
+  {
+   "role": "link",
+   "name": "逗比的雀巢 · 10月31日",
+   "locator": "[data-web-forager-browser-id=\"73\"]",
+   "href": "https://www.bilibili.com//space.bilibili.com/5294454"
+  },
+  {
+   "role": "link",
+   "name": "广告",
+   "locator": "[data-web-forager-browser-id=\"74\"]",
+   "href": "https://www.liblib.tv/ai-video/scene?attr_tracker_id=rwraGj&sourceid=340055&utm_source=bilibili&track_id=pbaes._wg553tPT_EaBrfTwnO3UIW-gRHu2GfAqoUe80qr8B2ZTyRjmWiZaPykN5QhIMxfBdtR633yNyTvIEFY5lWxnGR_R06glp3Ss0FWWp-ErXgaLTrQc1udwEDoI6dDT-bmg_ZHs96nA1tiJMjzgJ_R1FHK-Az0jW780flm2Ndxu84vqxxWjlBVq0vJbHeVq8wcT1OVOcsM0A9oj3lK-2RNFw&bili_account_id=4695064&bili_campaign_id=866699203&bili_unit_id=866699203&bili_creative_id=866699203_2118262478923190272&bili_resource_id=5614&bili_promotion_id=866699203&bili_material_id=2118262478923190272&source_id=5614&resource_id=__RESOURCEID__&creative_id=866699203_2118262478923190272&from_spmid=__FROMSPMID__&request_id=1794044380240q10a85a69a119q7914&caid=__CAID__&linked_creative_id=4218497557"
+  },
+  {
+   "role": "link",
+   "name": "LibTV把AI视频成本打下来了！",
+   "locator": "[data-web-forager-browser-id=\"75\"]",
+   "href": "https://www.liblib.tv/ai-video/scene?attr_tracker_id=rwraGj&sourceid=340055&utm_source=bilibili&track_id=pbaes._wg553tPT_EaBrfTwnO3UIW-gRHu2GfAqoUe80qr8B2ZTyRjmWiZaPykN5QhIMxfBdtR633yNyTvIEFY5lWxnGR_R06glp3Ss0FWWp-ErXgaLTrQc1udwEDoI6dDT-bmg_ZHs96nA1tiJMjzgJ_R1FHK-Az0jW780flm2Ndxu84vqxxWjlBVq0vJbHeVq8wcT1OVOcsM0A9oj3lK-2RNFw&bili_account_id=4695064&bili_campaign_id=866699203&bili_unit_id=866699203&bili_creative_id=866699203_2118262478923190272&bili_resource_id=5614&bili_promotion_id=866699203&bili_material_id=2118262478923190272&source_id=5614&resource_id=__RESOURCEID__&creative_id=866699203_2118262478923190272&from_spmid=__FROMSPMID__&request_id=1794044380240q10a85a69a119q7914&caid=__CAID__&linked_creative_id=4218497557"
+  },
+  {
+   "role": "link",
+   "name": "1000+人感兴趣",
+   "locator": "[data-web-forager-browser-id=\"76\"]",
+   "href": "https://www.liblib.tv/ai-video/scene?attr_tracker_id=rwraGj&sourceid=340055&utm_source=bilibili&track_id=pbaes._wg553tPT_EaBrfTwnO3UIW-gRHu2GfAqoUe80qr8B2ZTyRjmWiZaPykN5QhIMxfBdtR633yNyTvIEFY5lWxnGR_R06glp3Ss0FWWp-ErXgaLTrQc1udwEDoI6dDT-bmg_ZHs96nA1tiJMjzgJ_R1FHK-Az0jW780flm2Ndxu84vqxxWjlBVq0vJbHeVq8wcT1OVOcsM0A9oj3lK-2RNFw&bili_account_id=4695064&bili_campaign_id=866699203&bili_unit_id=866699203&bili_creative_id=866699203_2118262478923190272&bili_resource_id=5614&bili_promotion_id=866699203&bili_material_id=2118262478923190272&source_id=5614&resource_id=__RESOURCEID__&creative_id=866699203_2118262478923190272&from_spmid=__FROMSPMID__&request_id=1794044380240q10a85a69a119q7914&caid=__CAID__&linked_creative_id=4218497557"
+  },
+  {
+   "role": "link",
+   "name": "673.2万 5571 01:26",
+   "locator": "[data-web-forager-browser-id=\"77\"]",
+   "href": "https://www.bilibili.com/video/BV1fNJQ6bEAj?trackid=web_pegasus_0.router-web-pegasus-2479516-gfll4.1794044380189.466"
+  },
+  {
+   "role": "link",
+   "name": "洗衣机如何演奏《雨爱》？",
+   "locator": "[data-web-forager-browser-id=\"78\"]",
+   "href": "https://www.bilibili.com/video/BV1fNJQ6bEAj?trackid=web_pegasus_0.router-web-pegasus-2479516-gfll4.1794044380189.466"
+  },
+  {
+   "role": "link",
+   "name": "非凯J · 10月16日",
+   "locator": "[data-web-forager-browser-id=\"79\"]",
+   "href": "https://www.bilibili.com//space.bilibili.com/1159076516"
+  },
+  {
+   "role": "link",
+   "name": "84.9万 868 01:15",
+   "locator": "[data-web-forager-browser-id=\"80\"]",
+   "href": "https://www.bilibili.com/video/BV1FLpg6pE9n?trackid=web_pegasus_0.router-web-pegasus-2479516-gfll4.1794044380189.466"
+  },
+  {
+   "role": "link",
+   "name": "琵琶曲，但是只用一根皮筋弹：",
+   "locator": "[data-web-forager-browser-id=\"81\"]",
+   "href": "https://www.bilibili.com/video/BV1FLpg6pE9n?trackid=web_pegasus_0.router-web-pegasus-2479516-gfll4.1794044380189.466"
+  },
+  {
+   "role": "link",
+   "name": "不那么肝的老肝妈 · 10月10日",
+   "locator": "[data-web-forager-browser-id=\"82\"]",
+   "href": "https://www.bilibili.com//space.bilibili.com/368094978"
+  },
+  {
+   "role": "link",
+   "name": "110.2万 928 01:11",
+   "locator": "[data-web-forager-browser-id=\"83\"]",
+   "href": "https://www.bilibili.com/video/BV1884g6mE8K?trackid=web_pegasus_0.router-web-pegasus-2479516-gfll4.1794044380189.466"
+  },
+  {
+   "role": "link",
+   "name": "师父！有这一身功夫，可够下山闯江湖了？ | 宜春",
+   "locator": "[data-web-forager-browser-id=\"84\"]",
+   "href": "https://www.bilibili.com/video/BV1884g6mE8K?trackid=web_pegasus_0.router-web-pegasus-2479516-gfll4.1794044380189.466"
+  },
+  {
+   "role": "link",
+   "name": "莓可-w- · 11月3日",
+   "locator": "[data-web-forager-browser-id=\"85\"]",
+   "href": "https://www.bilibili.com//space.bilibili.com/5028996"
+  },
+  {
+   "role": "link",
+   "name": "seedance 2.5 限时即免！",
+   "locator": "[data-web-forager-browser-id=\"86\"]",
+   "href": "https://www.oiioii.tv/?track_id=pbaes._wg553tPT_EaBrfTwnO3UIW-gRHu2GfAqoUe80qr8B2ZTyRjmWiZaPykN5QhIMxfBdtR633yNyTvIEFY5lWxnGR_R06glp3Ss0FWWp-ErXj--nuctv_bjJD9blu0G1AlrRvzUKGzgGhJw_EFDwe8I14vaS9btENYd_Nel4ZHvtTuPo8oJh-GsDo2nDmn0PDw&ad_source=bilibili_29d8028f-208b-4c67-ac01-408d990a2dae&caid=__CAID__&resource_id=__RESOURCEID__&source_id=5614&request_id=1794044380240q10a85a69a119q7914&from_spmid=__FROMSPMID__&creative_id=4055483610&linked_creative_id=4121094431"
+  },
+  {
+   "role": "link",
+   "name": "4000+人感兴趣",
+   "locator": "[data-web-forager-browser-id=\"87\"]",
+   "href": "https://www.oiioii.tv/?track_id=pbaes._wg553tPT_EaBrfTwnO3UIW-gRHu2GfAqoUe80qr8B2ZTyRjmWiZaPykN5QhIMxfBdtR633yNyTvIEFY5lWxnGR_R06glp3Ss0FWWp-ErXj--nuctv_bjJD9blu0G1AlrRvzUKGzgGhJw_EFDwe8I14vaS9btENYd_Nel4ZHvtTuPo8oJh-GsDo2nDmn0PDw&ad_source=bilibili_29d8028f-208b-4c67-ac01-408d990a2dae&caid=__CAID__&resource_id=__RESOURCEID__&source_id=5614&request_id=1794044380240q10a85a69a119q7914&from_spmid=__FROMSPMID__&creative_id=4055483610&linked_creative_id=4121094431"
+  },
+  {
+   "role": "link",
+   "name": "43.8万 130 02:03",
+   "locator": "[data-web-forager-browser-id=\"88\"]",
+   "href": "https://www.bilibili.com/video/BV1984q6hEXq?trackid=web_pegasus_0.router-web-pegasus-2479516-gfll4.1794044380189.466"
+  },
+  {
+   "role": "link",
+   "name": "新250配新刀",
+   "locator": "[data-web-forager-browser-id=\"89\"]",
+   "href": "https://www.bilibili.com/video/BV1984q6hEXq?trackid=web_pegasus_0.router-web-pegasus-2479516-gfll4.1794044380189.466"
+  },
+  {
+   "role": "link",
+   "name": "林正特老祖 · 23小时前",
+   "locator": "[data-web-forager-browser-id=\"90\"]",
+   "href": "https://www.bilibili.com//space.bilibili.com/3706987646814783"
+  },
+  {
+   "role": "link",
+   "name": "299.5万 6064 08:16",
+   "locator": "[data-web-forager-browser-id=\"91\"]",
+   "href": "https://www.bilibili.com/video/BV1HkJ66vEk9?trackid=web_pegasus_0.router-web-pegasus-2479516-gfll4.1794044380189.466"
+  },
+  {
+   "role": "link",
+   "name": "当你让4个AI各自造一个MC...",
+   "locator": "[data-web-forager-browser-id=\"92\"]",
+   "href": "https://www.bilibili.com/video/BV1HkJ66vEk9?trackid=web_pegasus_0.router-web-pegasus-2479516-gfll4.1794044380189.466"
+  },
+  {
+   "role": "link",
+   "name": "土豆味小哲 · 10月16日",
+   "locator": "[data-web-forager-browser-id=\"93\"]",
+   "href": "https://www.bilibili.com//space.bilibili.com/1987439458"
+  },
+  {
+   "role": "text",
+   "name": "下载客户端",
+   "locator": "[data-web-forager-browser-id=\"94\"]"
+  },
+  {
+   "role": "text",
+   "name": "宋玉替友人送信，韩立得意外之约",
+   "locator": "[data-web-forager-browser-id=\"95\"]"
+  },
+  {
+   "role": "text",
+   "name": "1195万",
+   "locator": "[data-web-forager-browser-id=\"96\"]"
+  },
+  {
+   "role": "text",
+   "name": "01:15",
+   "locator": "[data-web-forager-browser-id=\"97\"]"
+  },
+  {
+   "role": "text",
+   "name": "伢伢gagako",
+   "locator": "[data-web-forager-browser-id=\"98\"]"
+  },
+  {
+   "role": "text",
+   "name": "· 10月4日",
+   "locator": "[data-web-forager-browser-id=\"99\"]"
+  },
+  {
+   "role": "text",
+   "name": "155.6万",
+   "locator": "[data-web-forager-browser-id=\"100\"]"
+  },
+  {
+   "role": "text",
+   "name": "01:26",
+   "locator": "[data-web-forager-browser-id=\"101\"]"
+  },
+  {
+   "role": "text",
+   "name": "鸡鸡·夫斯基",
+   "locator": "[data-web-forager-browser-id=\"102\"]"
+  },
+  {
+   "role": "text",
+   "name": "· 10月30日",
+   "locator": "[data-web-forager-browser-id=\"103\"]"
+  },
+  {
+   "role": "text",
+   "name": "949.2万",
+   "locator": "[data-web-forager-browser-id=\"104\"]"
+  },
+  {
+   "role": "text",
+   "name": "16:08",
+   "locator": "[data-web-forager-browser-id=\"105\"]"
+  },
+  {
+   "role": "text",
+   "name": "逗比的雀巢",
+   "locator": "[data-web-forager-browser-id=\"106\"]"
+  },
+  {
+   "role": "text",
+   "name": "· 10月31日",
+   "locator": "[data-web-forager-browser-id=\"107\"]"
+  },
+  {
+   "role": "text",
+   "name": "1000+人感兴趣",
+   "locator": "[data-web-forager-browser-id=\"108\"]"
+  },
+  {
+   "role": "text",
+   "name": "673.2万",
+   "locator": "[data-web-forager-browser-id=\"109\"]"
+  },
+  {
+   "role": "text",
+   "name": "· 10月16日",
+   "locator": "[data-web-forager-browser-id=\"110\"]"
+  },
+  {
+   "role": "text",
+   "name": "84.9万",
+   "locator": "[data-web-forager-browser-id=\"111\"]"
+  },
+  {
+   "role": "text",
+   "name": "不那么肝的老肝妈",
+   "locator": "[data-web-forager-browser-id=\"112\"]"
+  },
+  {
+   "role": "text",
+   "name": "· 10月10日",
+   "locator": "[data-web-forager-browser-id=\"113\"]"
+  },
+  {
+   "role": "text",
+   "name": "110.2万",
+   "locator": "[data-web-forager-browser-id=\"114\"]"
+  },
+  {
+   "role": "text",
+   "name": "01:11",
+   "locator": "[data-web-forager-browser-id=\"115\"]"
+  },
+  {
+   "role": "text",
+   "name": "莓可-w-",
+   "locator": "[data-web-forager-browser-id=\"116\"]"
+  },
+  {
+   "role": "text",
+   "name": "· 11月3日",
+   "locator": "[data-web-forager-browser-id=\"117\"]"
+  },
+  {
+   "role": "text",
+   "name": "4000+人感兴趣",
+   "locator": "[data-web-forager-browser-id=\"118\"]"
+  },
+  {
+   "role": "text",
+   "name": "43.8万",
+   "locator": "[data-web-forager-browser-id=\"119\"]"
+  },
+  {
+   "role": "text",
+   "name": "02:03",
+   "locator": "[data-web-forager-browser-id=\"120\"]"
+  },
+  {
+   "role": "text",
+   "name": "林正特老祖",
+   "locator": "[data-web-forager-browser-id=\"121\"]"
+  },
+  {
+   "role": "text",
+   "name": "· 23小时前",
+   "locator": "[data-web-forager-browser-id=\"122\"]"
+  },
+  {
+   "role": "text",
+   "name": "299.5万",
+   "locator": "[data-web-forager-browser-id=\"123\"]"
+  },
+  {
+   "role": "text",
+   "name": "08:16",
+   "locator": "[data-web-forager-browser-id=\"124\"]"
+  },
+  {
+   "role": "text",
+   "name": "土豆味小哲",
+   "locator": "[data-web-forager-browser-id=\"125\"]"
+  }
+ ]
+}

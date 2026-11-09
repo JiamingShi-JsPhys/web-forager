@@ -26,7 +26,7 @@ map
     ``--url SITE``         discover page URLs from robots.txt / sitemaps
 
 Global
-    ``--engine auto|all|360|bing|sogou|duckduckgo``
+    ``--engine auto|all|360|bing|sogou|weixin|duckduckgo``
     ``--cache --chunk-size N --search-pages N``
     ``--agent``  OpenCLI-style ``{ok,data}`` / ``{ok,error}`` envelope for agents
 
@@ -101,10 +101,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--engine",
         choices=list(engine.SEARCH_ENGINES),
         default="auto",
-        help="search backend: auto=360+Bing, all=360+Bing+Sogou (default: auto)",
+        help="search backend: auto=360+Bing (mostly-CJK queries: 360+Sogou+WeChat); all=every engine (default: auto)",
     )
     parser.add_argument("--num-results", type=int, default=8, help="search results to request (default: 8)")
-    parser.add_argument("--max-pages", type=int, default=3, help="result pages to fetch (default: 3)")
+    parser.add_argument(
+        "--max-pages",
+        type=int,
+        default=3,
+        help="result pages to fetch (default: 3; 0 = search results only)",
+    )
     parser.add_argument("--search-pages", type=int, default=1, help="search result pages to read per engine (default: 1)")
     parser.add_argument(
         "--mode",
@@ -171,6 +176,11 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--core",
+        action="store_true",
+        help="report results in the shared core-1 schema that browser mode also emits",
+    )
+    parser.add_argument(
         "--agent",
         action="store_true",
         help="OpenCLI-style envelope: {ok:true,data:...} or {ok:false,error:{code,message,hint}}",
@@ -199,7 +209,7 @@ def build_config(args: argparse.Namespace) -> engine.FetchConfig:
         include_tables=not args.no_tables,
         keep_links=args.keep_links,
         include_images=args.images,
-        max_pages=max(1, args.max_pages),
+        max_pages=max(0, args.max_pages),
         num_results=max(1, args.num_results),
         verbose=args.verbose,
         extract_links=args.action == "surf",
@@ -705,6 +715,9 @@ def main(argv: list[str] | None = None) -> int:
 
             traceback.print_exc()
         return _fail(args, "unexpected_error", f"unexpected failure: {exc}", "run with --verbose for the traceback", 1)
+
+    if getattr(args, "core", False):
+        document = engine.apply_core(document)
 
     json_text = json.dumps(document, ensure_ascii=False, indent=2)
     markdown_text = document_to_markdown(document)

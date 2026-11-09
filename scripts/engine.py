@@ -44,11 +44,11 @@ import requests
 from bs4 import BeautifulSoup
 from bs4.element import NavigableString, Tag
 
-__version__ = "1.0.2"
+__version__ = "1.1.0"
 
 DEFAULT_USER_AGENT = (
-    "WebForager/1.0 (Information Gathering; +https://example.org/web-forager; "
-    "contact: web-forager@example.org)"
+    f"WebForager/{__version__} (Information Gathering; "
+    "+https://github.com/JiamingShi-JsPhys/web-forager)"
 )
 
 DISCLAIMER = (
@@ -166,16 +166,18 @@ class FetchConfig:
             raise ValueError("render must be auto, never or always")
         if self.follow not in ("same-site", "all", "none"):
             raise ValueError("follow must be same-site, all or none")
-        if self.search_engine not in ("auto", "all", "360", "bing", "sogou", "duckduckgo"):
-            raise ValueError("search_engine must be auto, all, 360, bing, sogou or duckduckgo")
+        if self.search_engine not in SEARCH_ENGINES:
+            raise ValueError(
+                "search_engine must be one of: " + ", ".join(SEARCH_ENGINES)
+            )
         if self.timeout <= 0:
             raise ValueError("timeout must be positive")
         if self.delay < 0:
             raise ValueError("delay must be >= 0")
         if self.max_chars < 0:
             raise ValueError("max_chars must be >= 0")
-        if self.max_pages < 1:
-            raise ValueError("max_pages must be >= 1")
+        if self.max_pages < 0:
+            raise ValueError("max_pages must be >= 0")
         if self.max_links < 1:
             raise ValueError("max_links must be >= 1")
         if self.search_pages < 1:
@@ -514,7 +516,13 @@ class RobotsCache:
             return RobotsPolicy.denying_all(source=robots_url, note=f"HTTP {status} on robots.txt")
         if 500 <= status < 600:
             return RobotsPolicy.denying_all(
-                source=robots_url, note=f"HTTP {status} on robots.txt; denied per RFC 9309"
+                source=robots_url,
+                note=(
+                    f"HTTP {status} on robots.txt; denied per RFC 9309. The site's "
+                    "robots.txt is broken, so no page on it can be read. Contact the "
+                    "site owner, or use --ignore-robots only for resources you are "
+                    "authorised to access."
+                ),
             )
         # 404/410 and other 4xx mean "no restrictions".
         return RobotsPolicy.allowing_all(source=robots_url, note=f"HTTP {status} on robots.txt")
@@ -628,6 +636,29 @@ def _cache_key(url: str) -> str:
     return hashlib.sha256(url.encode("utf-8")).hexdigest()
 
 
+def decode_js_redirect(text: str) -> str:
+    """Read the target URL out of a search engine's ``/link`` interstitial.
+
+    Two shapes exist. One writes the address literally
+    (``window.location.replace('https://...')``). The other — used by
+    weixin.sogou.com — assembles it from ``url += '...'`` chunks so that the
+    address never appears in the HTML as a whole; concatenating the chunks
+    recovers it without running any JavaScript.
+    """
+
+    if not text:
+        return ""
+    chunks = re.findall(r"""url\s*\+=\s*['"]([^'"]*)['"]""", text)
+    if chunks:
+        joined = "".join(chunks)
+        if joined.startswith("http"):
+            return joined
+    match = re.search(r"""window\.location\.replace\(\s*['"]([^'"]+)""", text)
+    if not match:
+        match = re.search(r"""URL\s*=\s*['"]([^'"]+)""", text)
+    return match.group(1) if match else ""
+
+
 class HttpFetcher:
     """A polite, robots-aware HTTP client built on requests."""
 
@@ -668,13 +699,22 @@ class HttpFetcher:
 
     # -- main entry -----------------------------------------------------
 
-    def fetch(self, url: str, *, check_robots: bool = True) -> HttpResponse:
+    def fetch(
+        self, url: str, *, check_robots: bool = True, use_cache: bool = True
+    ) -> HttpResponse:
+        """Fetch one URL.
+
+        ``use_cache=False`` skips both lookup and write. A bootstrap request
+        whose only job is to set cookies must not be answered from the cache:
+        a cached anti-bot page would silently supply no cookie at all.
+        """
+
         url = normalize_url(url)
         policy: Optional[RobotsPolicy] = None
         if check_robots:
             policy = self.assert_allowed(url)
 
-        cached = self._read_cache(url)
+        cached = self._read_cache(url) if use_cache else None
         if cached is not None:
             return cached
 
@@ -709,7 +749,8 @@ class HttpFetcher:
                 raise FetchError(f"HTTP {status} for {url}")
 
             result = self._read_response(response, url)
-            self._write_cache(url, result)
+            if use_cache:
+                self._write_cache(url, result)
             return result
 
         raise FetchError(f"request failed for {url}: {last_error}") from last_error
@@ -864,11 +905,7 @@ class HttpFetcher:
                 text and ("sogou.com/link" in final or "window.location.replace" in text)
             )
             if is_js_redirect:
-                match = re.search(r'window\.location\.replace\(["\']([^"\']+)', text)
-                if not match:
-                    match = re.search(r"URL='([^']+)'", text)
-                if match:
-                    final = match.group(1)
+                final = decode_js_redirect(text) or final
             return final
         except requests.RequestException:
             return url
@@ -964,8 +1001,9 @@ _BING_HTML = (
 _DDG_HTML = "https://html.duckduckgo.com/html/?q={query}"
 _SO_360 = "https://www.so.com/s?q={query}&pn={page}"
 _SOGOU = "https://www.sogou.com/web?query={query}&page={page}"
+_WEIXIN = "https://weixin.sogou.com/weixin?type=2&query={query}&page={page}"
 
-SEARCH_ENGINES = ("auto", "all", "360", "bing", "sogou", "duckduckgo")
+SEARCH_ENGINES = ("auto", "all", "360", "bing", "sogou", "weixin", "duckduckgo")
 
 _360_INTERNAL_HOSTS = (
     "so.com",
@@ -1022,8 +1060,10 @@ def search(
 ) -> list[dict[str, str]]:
     """Return ``[{title, url, snippet, source}]`` for a keyword query.
 
-    ``engine`` is one of ``auto`` (360 + Bing), ``all`` (360 + Bing + Sogou),
-    ``360``, ``bing``, ``sogou`` or ``duckduckgo``.
+    ``engine`` is one of ``auto`` (360 + Bing, and 360 + Sogou + the WeChat
+    index for a mostly-CJK query), ``all`` (every engine), ``360``, ``bing``,
+    ``sogou``, ``weixin`` or ``duckduckgo``. ``auto`` asks one more engine when
+    the answer holds fewer than three distinct results.
 
     Search endpoints are query interfaces, not target pages.  robots.txt
     therefore applies to the *result pages* we later fetch, not to the query
@@ -1042,15 +1082,20 @@ def search(
     if engine == "auto":
         # Bing tokenises quoted Chinese phrases poorly: it matches single
         # characters and pushes dictionary pages above the precise hits. For a
-        # CJK query, ask 360 and Sogou first and keep Bing only as a fallback
-        # for when both are unreachable.
+        # CJK query, ask 360, Sogou and 搜狗微信 first — the article index is the
+        # one channel that still carries a Chinese person's or institution's
+        # name — and keep Bing only as a fallback.
         if prefers_chinese_engines(query):
-            engines = ["360", "sogou"]
+            engines = ["360", "sogou", "weixin"]
             fallback_engines = ["bing"]
         else:
             engines = ["360", "bing"]
+            # A Latin query answered with a handful of results (or none) is
+            # often a narrow topic the first two engines do not index; Sogou
+            # widens the net without being asked for every query.
+            fallback_engines = ["sogou"]
     elif engine == "all":
-        engines = ["360", "bing", "sogou"]
+        engines = ["360", "bing", "sogou", "weixin"]
     else:
         engines = [engine]
 
@@ -1075,7 +1120,7 @@ def search(
 
     try:
         collect(engines)
-        if not groups and fallback_engines:
+        if fallback_engines and (not groups or _thin_results(groups, limit)):
             collect(fallback_engines)
     finally:
         if own_fetcher:
@@ -1089,6 +1134,20 @@ def search(
     else:
         merged = merge_search_results(groups, query, limit=limit)
     return dedupe_results(merged, limit=limit)
+
+
+def _thin_results(groups: list[tuple[str, list[dict[str, str]]]], limit: int) -> bool:
+    """True when the engines answered with fewer than a useful number of hits.
+
+    Three is the floor: below it a caller almost always has to run a second
+    query by hand.  The check counts distinct URLs, not raw rows, because one
+    engine repeats the same result across pages.
+    """
+
+    items = dedupe_results(
+        [item for _, group in groups for item in group], limit=max(limit, 3)
+    )
+    return len(items) < min(limit, 3)
 
 
 def _search_one(
@@ -1119,6 +1178,16 @@ def _search_one(
                 raise FetchError("Sogou returned a verification page (antispider)")
             parsed = parse_sogou_html(
                 response.text, base="https://www.sogou.com/", limit=limit
+            )
+            found = resolve_sogou_results(parsed, fetcher, limit=limit)
+        elif name == "weixin":
+            response = fetcher.fetch(
+                _WEIXIN.format(query=quoted, page=page), check_robots=False
+            )
+            if is_sogou_blocked(response.text):
+                raise FetchError("weixin.sogou.com returned a verification page (antispider)")
+            parsed = parse_weixin_html(
+                response.text, base="https://weixin.sogou.com/", limit=limit
             )
             found = resolve_sogou_results(parsed, fetcher, limit=limit)
         elif name == "duckduckgo":
@@ -1263,6 +1332,77 @@ def parse_sogou_html(
             continue
         seen.add(url)
         results.append({"title": title, "url": url, "snippet": snippet, "source": "sogou"})
+        if len(results) >= limit:
+            break
+    return results
+
+
+def _join_cjk(text: str) -> str:
+    """Remove the spaces a highlight tag leaves inside a Chinese sentence.
+
+    ``示例<em>名字</em>解析`` reads as "示例 名字 解析" once tags are replaced with
+    spaces; Chinese text has no word spaces, so joining across CJK characters
+    restores the original phrase without touching spaces between Latin words.
+    """
+
+    return re.sub(r"(?<=[㐀-䶿一-鿿])\s+(?=[㐀-䶿一-鿿])", "", text)
+
+
+def parse_weixin_html(
+    html: str, base: str = "https://weixin.sogou.com/", limit: int = 8
+) -> list[dict[str, str]]:
+    """Parse 搜狗微信 article results (``ul.news-list > li``).
+
+    Each entry is one WeChat official-account article. The link is a Sogou
+    ``/link?url=`` wrapper that resolves to ``mp.weixin.qq.com`` (handled by
+    :func:`resolve_sogou_results`); the account name and publish date travel
+    with the result so a caller can tell a lab's own post from a re-post.
+    """
+
+    soup = make_soup(html)
+    results: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in soup.select("ul.news-list li"):
+        anchor = item.select_one("h3 a")
+        if anchor is None:
+            continue
+        href = _attr_text(anchor, "href")
+        url = absolute_url(href, base=base)
+        if not url:
+            continue
+        heading = item.select_one("h3")
+        title = _join_cjk(_clean_result_text(heading.get_text(" ", strip=True) if heading else ""))
+        if not title:
+            continue
+        snippet = ""
+        node = item.select_one("p.txt-info")
+        if node is not None:
+            snippet = _join_cjk(_clean_result_text(node.get_text(" ", strip=True)))
+        entry = {
+            "title": title,
+            "url": url,
+            "snippet": snippet,
+            "source": "weixin",
+        }
+        account = item.select_one("div.s-p span.all-time-y2") or item.select_one(
+            "div.s-p a.account"
+        )
+        if account is not None:
+            name = _clean_result_text(account.get_text(" ", strip=True))
+            if name:
+                entry["account"] = name
+        stamp = re.search(r"timeConvert\('(\d+)'\)", str(item))
+        if stamp:
+            try:
+                entry["date"] = time.strftime(
+                    "%Y-%m-%d", time.localtime(int(stamp.group(1)))
+                )
+            except (OverflowError, OSError, ValueError):
+                pass
+        if url in seen:
+            continue
+        seen.add(url)
+        results.append(entry)
         if len(results) >= limit:
             break
     return results
@@ -2593,6 +2733,33 @@ def fetch_page(
             fetcher.close()
 
 
+def search_warnings(
+    query: str, results: list[dict[str, Any]], engine: str = "auto"
+) -> list[str]:
+    """Warnings for a search that returned nothing or nothing relevant.
+
+    Both the CLI and the MCP server attach these, so an agent that receives a
+    list of dictionary pages is told they are unrelated instead of reporting
+    them as findings.
+    """
+
+    warnings: list[str] = []
+    tokens = _query_tokens(query)
+    if not results:
+        warnings.append(
+            f"no results: {engine} returned nothing for {query!r}. Try another "
+            "engine (--engine all), a shorter query, or a direct URL."
+        )
+    elif tokens and max(result_coverage(item, tokens) for item in results) <= 0:
+        warnings.append(
+            "none of the returned results mention the query text; the engine "
+            "most likely split the query into single characters (common with "
+            "quoted or CJK names). Treat these results as unrelated and try "
+            "another engine or a more specific query."
+        )
+    return warnings
+
+
 def fetch_by_query(
     query: str,
     config: Optional[FetchConfig] = None,
@@ -2628,12 +2795,17 @@ def fetch_by_query(
                         "warnings": [],
                     }
                 )
-        return {
+        payload: dict[str, Any] = {
             "query": query,
             "engine": engine,
+            "mode": "search",
             "search_results": results,
             "pages": pages,
         }
+        warnings = search_warnings(query, results, engine=engine)
+        if warnings:
+            payload["warnings"] = warnings
+        return payload
     finally:
         if own_fetcher:
             fetcher.close()
@@ -2779,3 +2951,79 @@ def build_envelope(
         else:
             envelope["results"] = [payload]
     return envelope
+
+
+CORE_SHARED_KEYS = (
+    "metadata",
+    "markdown",
+    "tables",
+    "warnings",
+    "url",
+    "final_url",
+    "title",
+    "captured_at",
+    "fetched_at",
+    "collected_at",
+    "source",
+    "mode",
+    "schema_version",
+)
+
+
+def normalize_record(record: dict[str, Any]) -> dict[str, Any]:
+    """Fold an HTTP record onto the core shape the browser mode also emits.
+
+    The two modes share four fields -- ``metadata``, ``markdown``, ``tables``
+    and ``warnings`` -- and differ everywhere else.  ``normalize_record`` maps
+    both onto ``core-1`` so a caller can read one list of results without
+    branching on the mode; everything mode-specific is kept under ``extra``
+    rather than dropped.  The browser side has the same function in
+    ``browser/lib/record.js``.
+    """
+
+    value = dict(record or {})
+    metadata = value.get("metadata") or {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+    raw_source = value.get("source")
+    browser = raw_source == "web-forager-browser" or bool(value.get("captured_at"))
+    extra = {key: item for key, item in value.items() if key not in CORE_SHARED_KEYS}
+    # ``clean`` records use ``source`` for the local file path, which is not the
+    # producer name; keep it in extra instead of overwriting the core field.
+    if raw_source and raw_source not in ("web-forager", "web-forager-browser"):
+        extra["record_source"] = raw_source
+    tables = value.get("tables")
+    warnings = value.get("warnings")
+    return {
+        "schema_version": "core-1",
+        "source": "web-forager-browser" if browser else "web-forager",
+        "mode": "browser" if browser else "http",
+        "url": value.get("url") or value.get("final_url") or "",
+        "title": value.get("title") or metadata.get("title") or "",
+        "collected_at": value.get("collected_at") or value.get("captured_at") or value.get("fetched_at") or "",
+        "metadata": metadata,
+        "markdown": value.get("markdown") or "",
+        "tables": tables if isinstance(tables, list) else [],
+        "warnings": warnings if isinstance(warnings, list) else [],
+        "extra": extra,
+    }
+
+
+def apply_core(envelope: dict[str, Any]) -> dict[str, Any]:
+    """Replace an envelope's ``results`` list with core-1 records."""
+
+    output = dict(envelope)
+    results = output.get("results")
+    if isinstance(results, list):
+        output["results"] = [normalize_record(item) for item in results if isinstance(item, dict)]
+    elif isinstance(results, dict):
+        output["results"] = normalize_record(results)
+    elif "markdown" in output or "metadata" in output:
+        # A single-record action (``clean``) keeps its record at the top level.
+        record = {
+            key: value
+            for key, value in output.items()
+            if key not in ("tool", "version", "action", "generated_at")
+        }
+        output["results"] = [normalize_record(record)]
+    return output

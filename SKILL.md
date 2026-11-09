@@ -1,20 +1,24 @@
 ---
 name: web-forager
-version: 1.0.2
+version: 1.1.0
 description: >
-  Polite, robots-aware web information gathering: search 360/Bing/Sogou,
-  read HTML/PDF/DOCX/XLSX/EPUB/CSV and RSS/Atom, collect public pages from
-  Bilibili, Zhihu, Xiaohongshu, Weibo and other sites, discover sitemaps,
-  chunk long Markdown, cache responses, and surf the web link by link with
-  resumable sessions. Optional scholarly lookups cover arXiv/Crossref/
-  PubMed/DOI. Ships a CLI, an OpenCLI-style --agent envelope and a stdio MCP
-  server. Optional Playwright rendering for JavaScript-heavy pages.
+  Polite, robots-aware web information gathering with two modes. HTTP mode
+  searches 360/Bing/Sogou/WeChat, reads HTML/PDF/DOCX/XLSX/EPUB/CSV and RSS/Atom,
+  collects public pages from Bilibili through a dedicated adapter and reads
+  other sites as ordinary pages, discovers sitemaps, chunks long Markdown,
+  caches responses, and surfs the web link by link with resumable sessions.
+  Browser mode drives a real browser through a bridge for login-state pages,
+  rendered content, danmaku and seven read-only playbooks covering Bilibili,
+  Zhihu and Xiaohongshu. Optional scholarly lookups cover
+  arXiv/Crossref/PubMed/DOI. Ships a CLI, an OpenCLI-style --agent envelope and
+  two stdio MCP servers.
 metadata:
-  version: 1.0.2
+  version: 1.1.0
   author: Jiaming Shi
   license: MIT
   entry_point: python run.py
   python_requires: '>=3.10'
+  browser_runtime: node >= 18
 ---
 
 > ## 免责声明（务必阅读）
@@ -32,7 +36,9 @@ and (optional) `playwright` / `pypdf` are used. No GPL/AGPL dependency.
 - **Standard-library formats:** DOCX, XLSX, EPUB, CSV, RSS, Atom, sitemap
 - **MCP:** `python mcp_server.py` (stdio JSON-RPC; tools: web_fetch,
   web_search, web_surf, web_scholar, web_map, web_bilibili, web_clean,
-  web_doctor)
+  web_doctor) and
+  `node browser/mcp_server.js` (browser_list, browser_run, browser_session,
+  browser_doctor)
 
 > **启用 JS 渲染：** 用户需自行运行
 > `pip install playwright && playwright install chromium`。
@@ -50,9 +56,13 @@ Run these exact forms from the plugin root — do not read the source tree:
 # one URL
 python run.py --action fetch --url "<URL>" --out result.json
 
-# keyword search, then fetch the top results (auto = 360 + Bing)
+# keyword search, then fetch the top results
+# auto = 360 + Bing; a mostly-CJK query also asks Sogou and 搜狗微信
 python run.py --action fetch --query "<KEYWORDS>" --num-results 8 --max-pages 3
 python run.py --action fetch --query "<KEYWORDS>" --engine all
+# a Chinese person or institution name: the general engines answer with
+# dictionary and directory pages, so ask the article index directly
+python run.py --action fetch --query "<中文人名>" --engine weixin --max-pages 3
 
 # local HTML / Office / EPUB / CSV -> Markdown
 python run.py --action clean --input page.html --out page.md --format markdown
@@ -124,16 +134,63 @@ python run.py --action bili --mode search --query "Python 教程" --direct-searc
 - The user asks to browse Bilibili: home feed, a specific video, its UP主 and
   statistics, its recommendation list, or a chain of related videos.
 - A Bilibili seed video is supplied and the user wants “相关视频”“刷下去”.
+- The page needs the browser's own session: Zhihu or Xiaohongshu behind a login
+  wall, lazy-loaded comments, or Bilibili danmaku (browser mode, needs a bridge).
+- The user asks to “像人一样点开/滚动/看完” rather than parse a response.
 
-Do **not** use for: login-protected content, paywalled material, personal data,
-CAPTCHA/Cloudflare bypass, or high-concurrency crawling.
+Do **not** use for: login-protected content without an authorised browser
+session, paywalled material, personal data, CAPTCHA/Cloudflare bypass, or
+high-concurrency crawling.
+
+## Browser mode (Node 18+)
+
+The browser layer lives in `browser/`. It drives a real browser through a
+bridge process and records what it sees with the same four core fields the HTTP
+mode uses (`metadata`, `markdown`, `tables`, `warnings`) plus browser-specific
+ones. It is read-only by default: like, coin, favourite, follow, share, comment,
+danmaku and publish are denied unless `--allow-write` is passed after the user
+authorises that single action.
+
+```bash
+# list playbooks and backends
+node browser/run.js --list
+
+# Bilibili feed, one video, episode chain, danmaku
+node browser/run.js --playbook bili-feed --session bili-01 --max-items 8 --agent
+node browser/run.js --playbook bili-video --url "https://www.bilibili.com/video/BV1xx411c7mD"
+node browser/run.js --playbook bili-chain --url "https://www.bilibili.com/video/BV1xx411c7mD"
+node browser/run.js --playbook bili-danmaku --url "https://www.bilibili.com/video/BV1xx411c7mD"
+
+# Zhihu and Xiaohongshu search
+node browser/run.js --playbook zhihu-dig --query "<KEYWORDS>" --agent
+node browser/run.js --playbook xhs-dig --query "<KEYWORDS>" --agent
+
+# plan without a browser
+node browser/run.js --playbook bili-feed --dry-run
+
+# connect a bridge (Playwright reference bridge is optional)
+npm install playwright && npx playwright install chromium
+WEB_FORAGER_BRIDGE="node browser/bridges/playwright-bridge.js" node browser/run.js --playbook bili-feed
+```
+
+Backends are labels only (`--backend iab|extension|cdp`); the bridge declares
+its real capabilities. Without a bridge, a live run exits 3. `zhihu-dig` and
+`xhs-dig` return `login_required` (exit 6) when a platform shows a login wall.
+An empty feed or search reports `degraded` (exit 8) with the records attached;
+an anti-bot page reports `blocked` (exit 9). `--strict-robots` checks
+`robots.txt` before every navigation, and every record states whether that
+check was made (`compliance.robots_checked`).
+
+Browser sessions live in `~/.web-forager/browser/sessions/` (override with
+`WEB_FORAGER_BROWSER_HOME`). With `--root <WS>`, records land in
+`<WS>/process/web-forager/browser/` and `<WS>/_broadcast/`.
 
 ## Inputs and outputs
 
 | Action | Input | Output |
 |---|---|---|
-| `fetch --url` | one http(s) URL | JSON with `metadata`, `markdown`, `tables`, `warnings`, plus a compact `results` index (use `--full-results` for full records) |
-| `fetch --query` | keywords + engine | JSON with `search_results`, `pages` (full records) and a compact `results` index |
+| `fetch --url` | one http(s) URL | JSON with `metadata`, `markdown`, `tables`, `warnings` |
+| `fetch --query` | keywords + engine | JSON with `search_results` and one record per fetched page |
 | `clean --input` | local HTML/PDF/DOCX/XLSX/EPUB/CSV file | JSON or Markdown |
 | `clean --url` | http(s) URL (any supported type) | JSON or Markdown |
 | `clean` (stdin) | HTML/PDF/Office bytes | JSON or Markdown |
@@ -152,7 +209,8 @@ CAPTCHA/Cloudflare bypass, or high-concurrency crawling.
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--engine auto\|all\|360\|bing\|sogou\|duckduckgo` | `auto` | search backend; auto=360+Bing, all adds Sogou |
+| `--engine auto\|all\|360\|bing\|sogou\|weixin\|duckduckgo` | `auto` | search backend; auto=360+Bing (mostly-CJK queries: 360+Sogou+搜狗微信, Bing fallback), all adds Sogou and 搜狗微信 |
+| `--max-pages N` | `3` | result pages to fetch; `0` returns the search results only |
 | `--search-pages N` | `1` | result pages read per engine |
 | `--source arxiv\|crossref\|pubmed\|doi` | `arxiv` | scholarly source |
 | `--sort relevance\|submittedDate\|lastUpdatedDate` | `relevance` | arXiv sort |
@@ -203,25 +261,57 @@ CAPTCHA/Cloudflare bypass, or high-concurrency crawling.
   never submits forms and never runs page JavaScript; every hop is re-checked
   against robots.txt and the per-origin rate limiter.
 - Bilibili: `api.bilibili.com` and `search.bilibili.com` disallow all generic
-  agents, so only `www.bilibili.com/` and `/video/BV…` are read. Search defaults
-  to a 360+Bing discovery route; `--direct-search` is an explicit, logged
-  override for the search page only. No login, cookies, comments or private data.
+  agents, so only `www.bilibili.com/` and `/video/BV…` are read by default.
+  Search resolves through the 360+Bing discovery route; `--direct-search` is an
+  explicit, logged override that asks the JSON search endpoint first (one
+  home-page visit supplies the `buvid3` cookie) and falls back to the search
+  page. No login, comments or private data.
 
-## MCP server
+## MCP servers
 
 ```bash
-python mcp_server.py
+python mcp_server.py          # HTTP mode
+node browser/mcp_server.js    # browser mode
 ```
 
-Newline-delimited JSON-RPC 2.0 on stdin/stdout; `.mcp.json` registers it for
-Claude Code. Tools: `web_fetch`, `web_search`, `web_surf`, `web_scholar`,
-`web_map`, `web_bilibili`, `web_clean`, `web_doctor`. Tool failures return `isError: true`
-with `{"ok":false,"error":{...}}` as text; protocol errors use JSON-RPC codes.
+Both speak newline-delimited JSON-RPC 2.0 on stdin/stdout; `.mcp.json`
+registers them as `web-forager` and `web-forager-browser`. HTTP tools:
+`web_fetch`, `web_search`, `web_surf`, `web_scholar`, `web_map`,
+`web_bilibili`, `web_clean`, `web_doctor`. Browser tools: `browser_list`, `browser_run`,
+`browser_session`, `browser_doctor`. Tool failures return `isError: true` with
+`{"ok":false,"error":{...}}` as text; protocol errors use JSON-RPC codes.
+
+Two switches keep a search cheap: `max_pages: 0` returns the result list with
+no page bodies (fetch one with `web_fetch` and a small `max_chars`), and
+`respect_robots: false` reads a page robots.txt disallows — only for resources
+you are authorised to read. A search whose results do not mention the query
+comes back with a `warnings` entry saying so.
+
+Browser runs cost far more than HTTP reads; keep them small:
+
+- pass `out` to `browser_run` so the full record goes to disk and only a
+  summary comes back;
+- take no screenshots unless the layout is the question — one image costs
+  about as much context as a page of prose;
+- keep `maxScreens` at or below 5 and `minInterval` at or above 3000 ms, and
+  split long walks into runs resumed from `--session`;
+- treat `bili-danmaku` as experimental: it prefers the bridge's `observe`
+  call and marks DOM fallback text `partial`;
+- login state comes from a browser you already run (`WEB_FORAGER_BROWSER_CDP`
+  with `--backend cdp`, or `WEB_FORAGER_BROWSER_PROFILE`), never from the
+  plugin signing in.
+
+HTTP mode is not a general search client: `web_scholar` (arXiv / Crossref /
+PubMed / DOI) and `web_map` (robots.txt and sitemap discovery) are the parts a
+search CLI does not cover, and they are the reason to reach for it.
 
 ## Tests
 
 ```bash
 python -m pytest tests -q
+npm run test:browser
 ```
 
-The suite uses a temporary local HTTP server; no public network access needed.
+The Python suite uses a temporary local HTTP server; no public network access
+needed. The browser suite uses a fake backend and a fake bridge that speaks the
+wire protocol, so the CLI runs end to end without a browser.

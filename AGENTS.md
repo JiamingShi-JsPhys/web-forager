@@ -1,4 +1,4 @@
-# web-forager — agent operating rules (v1.0.2)
+# web-forager — agent operating rules (v1.1.0)
 
 web-forager is a clean-room, robots-aware public-web intelligence layer. It
 searches, fetches, extracts and browses the open web to collect public information; it
@@ -24,6 +24,28 @@ the MCP server and `SKILL.md` share one engine and one robots/cache pipeline.
 - `python run.py --action doctor` — dependency report with install hints
 - `python mcp_server.py` — stdio JSON-RPC with the same capabilities
 - `.dsh-plugin/index.js` — non-Python harness entry (`apply(ctx)`)
+
+## Browser mode entry points (Node 18+)
+
+- `node browser/run.js --list` — list the seven browser playbooks
+- `node browser/run.js --playbook bili-feed|bili-video|bili-chain|bili-danmaku`
+- `node browser/run.js --playbook zhihu-dig|xhs-dig|search-dig --query <TEXT>`
+- `node browser/run.js --playbook bili-feed --dry-run` — plan without a browser
+- `node browser/run.js --playbook <NAME> --strict-robots` — check robots.txt first
+- `node browser/run.js --playbook <NAME> --core` — shared `core-1` records
+- `node browser/run.js --doctor` — say why the browser stack is not ready
+- `node browser/mcp_server.js` — browser_list / browser_run / browser_session / browser_doctor
+
+The bridge is found automatically at `browser/bridges/playwright-bridge.js`;
+`--bridge` or `WEB_FORAGER_BRIDGE` overrides it (an empty value disables
+discovery). The bridge needs the `playwright` package and its Chromium binary
+installed separately; `--doctor` names whichever is missing. Without a bridge a
+live run exits 3.
+
+Exit 8 means `degraded`: the page was read but the playbook found nothing it
+looks for, and the records are still attached. Exit 9 means `blocked`: an
+anti-bot or error page replaced the content. Exit 6 is `login_required`. Do not
+retry a blocked run in a loop, and never try to satisfy a challenge.
 
 Add `--agent` to any CLI action for a machine-readable
 `{"ok":true,"data":...}` / `{"ok":false,"error":{code,message,hint}}` envelope.

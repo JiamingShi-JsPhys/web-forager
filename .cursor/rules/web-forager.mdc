@@ -26,7 +26,8 @@ the MCP server and `SKILL.md` share one engine and one robots/cache pipeline.
 - `python run.py --action scholar --source arxiv|crossref|pubmed|doi --query <TEXT>`
 - `python run.py --action map --url <SITE>` — sitemap URL discovery
 - `python run.py --action bili --mode feed|video|search|related|surf`
-- `python mcp_server.py` — stdio JSON-RPC with the same seven capabilities
+- `python run.py --action doctor` — dependency report with install hints
+- `python mcp_server.py` — stdio JSON-RPC with the same capabilities
 - `.dsh-plugin/index.js` — non-Python harness entry (`apply(ctx)`)
 
 Add `--agent` to any CLI action for a machine-readable

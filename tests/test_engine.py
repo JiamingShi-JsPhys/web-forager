@@ -235,5 +235,6 @@ def test_disclaimer_text_is_exact() -> None:
 def test_default_user_agent_is_identifiable() -> None:
     agent = engine.DEFAULT_USER_AGENT
     assert agent.startswith("WebForager/")
+    assert f"WebForager/{engine.__version__}" in agent
     assert "Information Gathering" in agent
-    assert "contact:" in agent
+    assert "github.com/JiamingShi-JsPhys/web-forager" in agent

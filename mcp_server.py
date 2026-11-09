@@ -35,6 +35,10 @@ _TOOLS: list[dict[str, Any]] = [
                 "render": {"type": "string", "enum": ["auto", "never", "always"]},
                 "include_tables": {"type": "boolean"},
                 "cache": {"type": "boolean"},
+                "respect_robots": {
+                    "type": "boolean",
+                    "description": "Check robots.txt before fetching (default true). Set false only for resources you are authorised to read.",
+                },
                 "fullResults": {
                     "type": "boolean",
                     "description": "Repeat every page record inside results as well as pages (1.0.1 behaviour; doubles the response).",
@@ -45,18 +49,22 @@ _TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "web_search",
-        "description": "Search 360/Bing/Sogou and optionally fetch the top result pages.",
+        "description": "Search 360/Bing/Sogou/WeChat and optionally fetch the top result pages.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "query": {"type": "string"},
                 "engine": {
                     "type": "string",
-                    "enum": ["auto", "all", "360", "bing", "sogou", "duckduckgo"],
+                    "enum": ["auto", "all", "360", "bing", "sogou", "weixin", "duckduckgo"],
                 },
                 "num_results": {"type": "integer", "minimum": 1, "maximum": 50},
                 "max_pages": {"type": "integer", "minimum": 0, "maximum": 20},
                 "search_pages": {"type": "integer", "minimum": 1, "maximum": 5},
+                "respect_robots": {
+                    "type": "boolean",
+                    "description": "Check robots.txt before fetching a result page (default true). Set false only for resources you are authorised to read.",
+                },
                 "fullResults": {
                     "type": "boolean",
                     "description": "Repeat every page record inside results as well as pages (1.0.1 behaviour; doubles the response).",
@@ -78,6 +86,10 @@ _TOOLS: list[dict[str, Any]] = [
                 "follow": {"type": "string", "enum": ["same-site", "all", "none"]},
                 "session": {"type": "string"},
                 "engine": {"type": "string"},
+                "respect_robots": {
+                    "type": "boolean",
+                    "description": "Check robots.txt before fetching a page (default true). Set false only for resources you are authorised to read.",
+                },
                 "fullResults": {
                     "type": "boolean",
                     "description": "Repeat every page record inside results as well as pages (1.0.1 behaviour; doubles the response).",
@@ -168,6 +180,10 @@ def _config(arguments: dict[str, Any]) -> engine.FetchConfig:
         search_pages=max(1, int(arguments.get("search_pages", 1))),
         search_engine=str(arguments.get("engine", "auto")),
         follow=str(arguments.get("follow", "same-site")),
+        # robots.txt is checked for every fetched page unless the caller turns
+        # it off explicitly, which is the same switch the CLI spells
+        # --ignore-robots.
+        respect_robots=bool(arguments.get("respect_robots", True)),
         verbose=False,
     )
     config.validate()
@@ -205,11 +221,18 @@ def _tool_search(arguments: dict[str, Any]) -> dict[str, Any]:
                     pages.append({"url": result["url"], "error": f"{exc.__class__.__name__}: {exc}"})
         finally:
             fetcher.close()
-    return engine.build_envelope(
-        "fetch",
-        {"query": query, "engine": str(arguments.get("engine", "auto")), "search_results": results, "pages": pages},
-        full_results=_full_results(arguments),
+    payload: dict[str, Any] = {
+        "query": query,
+        "engine": str(arguments.get("engine", "auto")),
+        "search_results": results,
+        "pages": pages,
+    }
+    warnings = engine.search_warnings(
+        query, results, engine=str(arguments.get("engine", "auto"))
     )
+    if warnings:
+        payload["warnings"] = warnings
+    return engine.build_envelope("fetch", payload, full_results=_full_results(arguments))
 
 
 def _tool_surf(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -226,6 +249,10 @@ def _tool_surf(arguments: dict[str, Any]) -> dict[str, Any]:
         engine_name=str(arguments.get("engine", "auto")),
         session=arguments.get("session") or None,
     )
+    if arguments.get("url") and arguments.get("query"):
+        payload.setdefault("warnings", []).append(
+            "query was ignored because url was given; omit url to surf from a search"
+        )
     return engine.build_envelope("surf", payload, full_results=_full_results(arguments))
 
 

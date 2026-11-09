@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import re
+import urllib.parse
 from datetime import datetime, timezone
 from typing import Any, Iterable, Optional
 
@@ -29,6 +30,7 @@ from . import engine
 BILI_HOME = "https://www.bilibili.com/"
 BILI_VIDEO = "https://www.bilibili.com/video/{bvid}/"
 BILI_SEARCH = "https://search.bilibili.com/all?keyword={query}"
+BILI_API_SEARCH = "https://api.bilibili.com/x/web-interface/search/type"
 
 _BV_RE = re.compile(r"(BV[0-9A-Za-z]{10})")
 _AV_RE = re.compile(r"\bav(\d+)\b", re.I)
@@ -379,6 +381,79 @@ def parse_video_cards(html: str, base: str = BILI_HOME, limit: int = 20) -> list
     return cards
 
 
+def _https_url(value: str) -> str:
+    if value.startswith("//"):
+        return "https:" + value
+    return value.replace("http://", "https://")
+
+
+def parse_api_search(payload: Any, limit: int = 20) -> list[dict[str, Any]]:
+    """Map Bilibili's JSON search payload onto the card shape.
+
+    The endpoint answers ``{"code": 0, "data": {"result": [...]}}``; any other
+    code (``-412`` is the anti-bot refusal) is reported as a FetchError so the
+    caller can fall back to the search page.
+    """
+
+    if not isinstance(payload, dict):
+        raise engine.FetchError("Bilibili search returned a non-JSON payload")
+    if payload.get("code") != 0:
+        raise engine.FetchError(
+            f"Bilibili search API code {payload.get('code')}: "
+            f"{payload.get('message') or 'no message'}"
+        )
+    data = payload.get("data") or {}
+    items = data.get("result") or []
+    cards: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        bvid = str(item.get("bvid") or "").strip()
+        if not bvid and item.get("arcurl"):
+            match = _BV_RE.search(str(item["arcurl"]))
+            bvid = match.group(1) if match else ""
+        if not bvid or bvid in seen:
+            continue
+        seen.add(bvid)
+        title = engine._join_cjk(clean_title(item.get("title") or ""))
+        uploader = str(item.get("author") or "").strip()
+        duration = str(item.get("duration") or "").strip()
+        published = ""
+        if item.get("pubdate"):
+            try:
+                published = datetime.fromtimestamp(
+                    int(item["pubdate"]), tz=timezone.utc
+                ).strftime("%Y-%m-%d")
+            except (OverflowError, OSError, ValueError):
+                published = ""
+        stats = []
+        if item.get("play") is not None:
+            stats.append(f"播放 {item['play']}")
+        if item.get("danmaku") is not None:
+            stats.append(f"弹幕 {item['danmaku']}")
+        url = BILI_VIDEO.format(bvid=bvid)
+        cards.append(
+            {
+                "bvid": bvid,
+                "url": url,
+                "title": title,
+                "uploader": uploader,
+                "duration": duration,
+                "published_text": published,
+                "stats_text": stats,
+                "cover": _https_url(str(item.get("pic") or "")),
+                "markdown": f"- [{title}]({url})"
+                + (f" · UP主：{uploader}" if uploader else "")
+                + (f" · {duration}" if duration else "")
+                + (f" · {published}" if published else ""),
+            }
+        )
+        if len(cards) >= limit:
+            break
+    return cards
+
+
 # ---------------------------------------------------------------------------
 # Fetching
 # ---------------------------------------------------------------------------
@@ -549,24 +624,70 @@ def _search_via_engines(
     return candidates
 
 
+def _api_search(
+    query: str, config: engine.FetchConfig, fetcher: engine.HttpFetcher
+) -> list[dict[str, Any]]:
+    """Ask Bilibili's JSON search endpoint.
+
+    The endpoint needs the ``buvid3`` cookie that one visit to the home page
+    sets — without it the API answers ``-412``. The HttpFetcher's session keeps
+    cookies, so the same fetcher performs both requests.
+    """
+
+    try:
+        # Never from the cache: a cached anti-bot page supplies no cookie.
+        fetcher.fetch(BILI_HOME, check_robots=False, use_cache=False)
+    except engine.FetchError:
+        pass  # the search call may still succeed on some networks
+    url = BILI_API_SEARCH + "?search_type=video&keyword=" + urllib.parse.quote_plus(
+        query
+    ) + "&page=1"
+    response = fetcher.fetch(url, check_robots=False, use_cache=False)
+    return parse_api_search(json.loads(response.text), limit=config.num_results)
+
+
+def _filter_by_query(
+    cards: list[dict[str, Any]], query: str, limit: int
+) -> list[dict[str, Any]]:
+    """Keep only cards that mention the query text.
+
+    A search page can answer with a recommendation rail instead of results —
+    the cards look normal and carry nothing to do with the query. Dropping them
+    is what turns a silent wrong answer into an honest empty one.
+    """
+
+    tokens = engine._query_tokens(query)
+    if not tokens:
+        return cards[:limit]
+    kept = [card for card in cards if engine.result_coverage(card, tokens) > 0]
+    return kept[:limit]
+
+
 def _search_direct(
     query: str,
     config: engine.FetchConfig,
     fetcher: engine.HttpFetcher,
     check_robots: bool = True,
-) -> list[dict[str, Any]]:
-    """Query search.bilibili.com directly.
+) -> tuple[list[dict[str, Any]], str]:
+    """Query Bilibili directly, JSON first and the search page second.
 
-    ``check_robots=True`` raises RobotsDenied because that host disallows all
-    generic agents.  ``--direct-search`` narrows the override to this one
-    query; video pages are still fetched with robots checks enabled.
+    Both hosts are disallowed by their own robots.txt for generic agents, so
+    this is reached only when robots checks are off globally or
+    ``--direct-search`` narrows the override to this one query; video pages are
+    still fetched with robots checks enabled. The second return value names the
+    host that answered, or the one that was read when neither produced cards.
     """
 
-    import urllib.parse
-
+    try:
+        cards = _api_search(query, config, fetcher)
+    except (engine.FetchError, ValueError, json.JSONDecodeError):
+        cards = []
+    if cards:
+        return cards, "api.bilibili.com"
     url = BILI_SEARCH.format(query=urllib.parse.quote_plus(query))
     response = fetcher.fetch(url, check_robots=check_robots)
-    return parse_video_cards(response.text, base=response.final_url, limit=config.num_results)
+    cards = parse_video_cards(response.text, base=response.final_url, limit=config.num_results)
+    return _filter_by_query(cards, query, config.num_results), "search.bilibili.com"
 
 
 def search(
@@ -587,15 +708,17 @@ def search(
 
     try:
         if not config.respect_robots:
-            cards = _search_direct(query, config, fetcher, check_robots=False)
-            route = "search.bilibili.com"
-            note = "direct search page used because robots checks are disabled globally"
-        elif allow_direct:
-            cards = _search_direct(query, config, fetcher, check_robots=False)
-            route = "search.bilibili.com"
+            cards, route = _search_direct(query, config, fetcher, check_robots=False)
             note = (
-                "direct search page used because --direct-search was passed; "
-                "search.bilibili.com disallows generic agents in robots.txt"
+                "direct search used because robots checks are disabled globally; "
+                f"{route} answered"
+            )
+        elif allow_direct:
+            cards, route = _search_direct(query, config, fetcher, check_robots=False)
+            note = (
+                f"--direct-search asked {route} directly; that host disallows "
+                "generic agents in robots.txt, and video pages are still fetched "
+                "with robots checks enabled"
             )
         else:
             cards = _search_via_engines(query, config, fetcher)
@@ -610,6 +733,14 @@ def search(
                     "; the search engine returned no video URLs — pass --url with a seed video, "
                     "or --direct-search to query the Bilibili search page explicitly"
                 )
+
+        if not cards and route in ("search.bilibili.com", "api.bilibili.com"):
+            note += (
+                "; no video card mentioned the query. Bilibili's JSON search "
+                "refuses a User-Agent it does not recognise, and the search page "
+                "builds its cards in JavaScript — use browser mode's search-dig, "
+                "or pass --url with a seed video"
+            )
 
         videos: list[dict[str, Any]] = []
         for card in cards[: max(0, config.max_pages)]:

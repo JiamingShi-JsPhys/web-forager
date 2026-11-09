@@ -6,6 +6,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+import time
 import uuid
 from pathlib import Path
 
@@ -99,10 +100,42 @@ def test_sogou_link_wrapper_is_resolved(site: str) -> None:
     assert resolved[0]["url"] == f"{site}/surf/two.html"
 
 
+def test_parse_weixin_keeps_account_and_date() -> None:
+    html = (FIXTURES / "search_weixin.html").read_text(encoding="utf-8")
+    results = engine.parse_weixin_html(html, limit=8)
+    assert len(results) == 2
+    first = results[0]
+    assert first["source"] == "weixin"
+    assert "张三" in first["title"]
+    # The highlight tag must not leave spaces inside the Chinese phrase.
+    assert "张三获团体金牌" in first["title"]
+    assert first["account"] == "示例公众号"
+    assert first["date"] == time.strftime("%Y-%m-%d", time.localtime(1704153600))
+    assert first["url"].startswith("https://weixin.sogou.com/link?url=")
+
+
+def test_decode_js_redirect_reads_chunked_url() -> None:
+    text = (
+        "<script>\n"
+        "url += 'https://mp.';\n"
+        "url += 'weixin.qq.c';\n"
+        "url += 'om/s?src=3';\n"
+        "window.location.replace(url)\n"
+        "</script>"
+    )
+    assert engine.decode_js_redirect(text) == "https://mp.weixin.qq.com/s?src=3"
+
+
+def test_decode_js_redirect_reads_literal_url() -> None:
+    text = "window.location.replace('https://example.org/article')"
+    assert engine.decode_js_redirect(text) == "https://example.org/article"
+    assert engine.decode_js_redirect("") == ""
+
+
 def test_engine_choices_exposed_on_cli() -> None:
     result = run_cli("--help")
     assert result.returncode == 0
-    for name in ("auto", "all", "360", "bing", "sogou", "duckduckgo"):
+    for name in ("auto", "all", "360", "bing", "sogou", "weixin", "duckduckgo"):
         assert name in result.stdout
 
 
@@ -276,13 +309,16 @@ def _fake_engine(monkeypatch, failing: set[str] | None = None):
         calls.append(name)
         if name in failing:
             raise engine.FetchError(f"{name} returned a verification page")
+        # Three distinct results is the thin-result floor: enough that `auto`
+        # does not widen the query to another engine.
         return [
             {
-                "title": f"{name} 结果",
-                "url": f"https://{name}.example/result",
+                "title": f"{name} 结果 {index}",
+                "url": f"https://{name}.example/result{index}",
                 "snippet": "",
                 "source": name,
             }
+            for index in range(3)
         ]
 
     monkeypatch.setattr(engine, "_search_one", fake_search_one)
@@ -297,7 +333,7 @@ def test_auto_routes_chinese_queries_away_from_bing(monkeypatch) -> None:
         engine.search("杭州西湖一日游攻略", config, fetcher=fetcher)
     finally:
         fetcher.close()
-    assert calls == ["360", "sogou"]
+    assert calls == ["360", "sogou", "weixin"]
     assert "bing" not in calls
 
 
@@ -313,15 +349,53 @@ def test_auto_keeps_bing_for_latin_queries(monkeypatch) -> None:
 
 
 def test_chinese_query_still_falls_back_to_bing(monkeypatch) -> None:
-    calls = _fake_engine(monkeypatch, failing={"360", "sogou"})
+    calls = _fake_engine(monkeypatch, failing={"360", "sogou", "weixin"})
     config = engine.FetchConfig(delay=0.0)
     fetcher = engine.HttpFetcher(config)
     try:
         results = engine.search("杭州西湖一日游攻略", config, fetcher=fetcher)
     finally:
         fetcher.close()
-    assert calls == ["360", "sogou", "bing"]
+    assert calls == ["360", "sogou", "weixin", "bing"]
     assert results and results[0]["source"] == "bing"
+
+
+def test_thin_auto_results_ask_one_more_engine(monkeypatch) -> None:
+    calls: list[str] = []
+
+    def fake_search_one(name, query, config, limit, fetcher, pages=1):
+        calls.append(name)
+        count = 1
+        return [
+            {
+                "title": f"{name} 结果 {index}",
+                "url": f"https://{name}.example/result{index}",
+                "snippet": "",
+                "source": name,
+            }
+            for index in range(count)
+        ]
+
+    monkeypatch.setattr(engine, "_search_one", fake_search_one)
+    config = engine.FetchConfig(delay=0.0)
+    fetcher = engine.HttpFetcher(config)
+    try:
+        results = engine.search("reinforcement learning", config, fetcher=fetcher)
+    finally:
+        fetcher.close()
+    assert calls == ["360", "bing", "sogou"]
+    assert any(item["source"] == "sogou" for item in results)
+
+
+def test_a_full_auto_answer_does_not_ask_a_third_engine(monkeypatch) -> None:
+    calls = _fake_engine(monkeypatch)
+    config = engine.FetchConfig(delay=0.0)
+    fetcher = engine.HttpFetcher(config)
+    try:
+        engine.search("reinforcement learning", config, fetcher=fetcher)
+    finally:
+        fetcher.close()
+    assert calls == ["360", "bing"]
 
 
 def test_dedupe_drops_garbled_titles() -> None:
@@ -340,3 +414,85 @@ def test_prefers_chinese_engines_threshold() -> None:
     assert engine.prefers_chinese_engines("Python 教程") is False
     assert engine.prefers_chinese_engines("reinforcement learning") is False
     assert engine.prefers_chinese_engines("") is False
+
+
+# ---------------------------------------------------------------------------
+def test_zero_pages_returns_results_without_fetching(monkeypatch) -> None:
+    monkeypatch.setattr(
+        engine,
+        "search",
+        lambda *args, **kwargs: [
+            {"title": "示例", "url": "https://example.org/", "snippet": "", "source": "360"}
+        ],
+    )
+    config = engine.FetchConfig(max_pages=0, delay=0.0)
+    payload = engine.fetch_by_query("示例", config, engine="360")
+    assert payload["pages"] == []
+    assert payload["search_results"]
+
+
+# Search quality signals (1.1.0)
+# ---------------------------------------------------------------------------
+
+
+def _stub_search(monkeypatch, results):
+    monkeypatch.setattr(engine, "search", lambda *args, **kwargs: results)
+    monkeypatch.setattr(
+        engine,
+        "fetch_page",
+        lambda url, config, fetcher=None: {"url": url, "title": "", "markdown": "", "tables": [], "warnings": []},
+    )
+
+
+def test_search_warns_when_results_ignore_the_query(monkeypatch) -> None:
+    _stub_search(
+        monkeypatch,
+        [
+            {
+                "title": "施（汉语文字）_百度百科",
+                "url": "https://baike.example/shi",
+                "snippet": "施字的意思、读音和部首",
+                "source": "bing",
+            }
+        ],
+    )
+    config = engine.FetchConfig(delay=0.0, max_pages=1)
+    payload = engine.fetch_by_query("张三", config, engine="bing")
+    assert payload["mode"] == "search"
+    assert any("none of the returned results" in item for item in payload["warnings"])
+
+
+def test_search_warns_when_every_engine_returns_nothing(monkeypatch) -> None:
+    _stub_search(monkeypatch, [])
+    config = engine.FetchConfig(delay=0.0, max_pages=1)
+    payload = engine.fetch_by_query("张三", config, engine="360")
+    assert any("no results" in item for item in payload["warnings"])
+
+
+def test_search_stays_quiet_when_results_match(monkeypatch) -> None:
+    _stub_search(
+        monkeypatch,
+        [
+            {
+                "title": "张三 — 示例大学",
+                "url": "https://example.org/shi-jiaming",
+                "snippet": "张三，示例大学研究员",
+                "source": "bing",
+            }
+        ],
+    )
+    config = engine.FetchConfig(delay=0.0, max_pages=1)
+    payload = engine.fetch_by_query("张三", config, engine="bing")
+    assert "warnings" not in payload
+
+
+def test_surf_warns_when_query_is_ignored(monkeypatch) -> None:
+    import mcp_server
+
+    monkeypatch.setattr(
+        mcp_server.engine,
+        "surf_web",
+        lambda *args, **kwargs: {"seed": "https://example.org/", "pages": []},
+    )
+    payload = mcp_server._tool_surf({"url": "https://example.org/", "query": "张三"})
+    assert any("query was ignored" in item for item in payload["warnings"])

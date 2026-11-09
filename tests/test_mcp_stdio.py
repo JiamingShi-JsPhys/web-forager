@@ -43,12 +43,12 @@ def test_serve_falls_back_to_ascii_escapes(monkeypatch) -> None:
         lambda request: {
             "jsonrpc": "2.0",
             "id": request.get("id"),
-            "result": {"content": [{"type": "text", "text": "西湖大学"}]},
+            "result": {"content": [{"type": "text", "text": "示例文本"}]},
         },
     )
     sink = Cp1252Sink()
     code = mcp_server.serve(stdin=['{"jsonrpc":"2.0","id":1,"method":"probe"}'], stdout=sink)
 
     assert code == 0
-    assert "\\u897f\\u6e56\\u5927\\u5b66" in sink.data
+    assert "\\u793a\\u4f8b\\u6587\\u672c" in sink.data
     assert "\n" in sink.data

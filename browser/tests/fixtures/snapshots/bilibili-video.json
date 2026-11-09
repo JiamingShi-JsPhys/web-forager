@@ -1,0 +1,665 @@
+{
+ "recorded_from": "https://www.bilibili.com/video/BV1GJ411x7h7",
+ "recorded_at": "2026-11-07",
+ "recorded_with": "tests/tools/html-to-snapshot.py over the public HTML",
+ "url": "https://www.bilibili.com/video/BV1GJ411x7h7",
+ "title": "【官方 MV】Never Gonna Give You Up - Rick Astley_哔哩哔哩_bilibili",
+ "nodes": [
+  {
+   "role": "heading",
+   "name": "【官方 MV】Never Gonna Give You Up - Rick Astley",
+   "locator": "[data-web-forager-browser-id=\"1\"]"
+  },
+  {
+   "role": "link",
+   "name": "首页",
+   "locator": "[data-web-forager-browser-id=\"2\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//www.bilibili.com"
+  },
+  {
+   "role": "link",
+   "name": "番剧",
+   "locator": "[data-web-forager-browser-id=\"3\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//www.bilibili.com/anime/"
+  },
+  {
+   "role": "link",
+   "name": "直播",
+   "locator": "[data-web-forager-browser-id=\"4\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//live.bilibili.com/"
+  },
+  {
+   "role": "link",
+   "name": "游戏中心",
+   "locator": "[data-web-forager-browser-id=\"5\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//game.bilibili.com/"
+  },
+  {
+   "role": "link",
+   "name": "会员购",
+   "locator": "[data-web-forager-browser-id=\"6\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//show.bilibili.com/platform/home.html?msource=pc_web"
+  },
+  {
+   "role": "link",
+   "name": "漫画",
+   "locator": "[data-web-forager-browser-id=\"7\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//manga.bilibili.com?from=bill_top_mnav"
+  },
+  {
+   "role": "link",
+   "name": "赛事",
+   "locator": "[data-web-forager-browser-id=\"8\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//www.bilibili.com/v/game/match/"
+  },
+  {
+   "role": "link",
+   "name": "账号已注销",
+   "locator": "[data-web-forager-browser-id=\"9\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//space.bilibili.com/371800306"
+  },
+  {
+   "role": "link",
+   "name": "FF小黄人",
+   "locator": "[data-web-forager-browser-id=\"10\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//space.bilibili.com/592667008"
+  },
+  {
+   "role": "link",
+   "name": "゚゚初音ミク",
+   "locator": "[data-web-forager-browser-id=\"11\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//space.bilibili.com/437457729"
+  },
+  {
+   "role": "link",
+   "name": "至放大來演吧",
+   "locator": "[data-web-forager-browser-id=\"12\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//space.bilibili.com/16089720"
+  },
+  {
+   "role": "link",
+   "name": "Microsoft_Win11",
+   "locator": "[data-web-forager-browser-id=\"13\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//space.bilibili.com/388428805"
+  },
+  {
+   "role": "link",
+   "name": "无何旧梦",
+   "locator": "[data-web-forager-browser-id=\"14\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//space.bilibili.com/369596063"
+  },
+  {
+   "role": "link",
+   "name": "D-SHABBY",
+   "locator": "[data-web-forager-browser-id=\"15\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//space.bilibili.com/3546965484767441"
+  },
+  {
+   "role": "link",
+   "name": "宫十五",
+   "locator": "[data-web-forager-browser-id=\"16\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//space.bilibili.com/1486777491"
+  },
+  {
+   "role": "link",
+   "name": "Never Gonna Give You Up",
+   "locator": "[data-web-forager-browser-id=\"17\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//search.bilibili.com/all?keyword=Never%20Gonna%20Give%20You%20Up&from_source=video_tag"
+  },
+  {
+   "role": "link",
+   "name": "Rick Astley",
+   "locator": "[data-web-forager-browser-id=\"18\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//search.bilibili.com/all?keyword=Rick%20Astley&from_source=video_tag"
+  },
+  {
+   "role": "link",
+   "name": "欧美MV",
+   "locator": "[data-web-forager-browser-id=\"19\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//search.bilibili.com/all?keyword=%E6%AC%A7%E7%BE%8EMV&from_source=video_tag"
+  },
+  {
+   "role": "link",
+   "name": "流行音乐",
+   "locator": "[data-web-forager-browser-id=\"20\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//search.bilibili.com/all?keyword=%E6%B5%81%E8%A1%8C%E9%9F%B3%E4%B9%90&from_source=video_tag"
+  },
+  {
+   "role": "link",
+   "name": "欧美音乐",
+   "locator": "[data-web-forager-browser-id=\"21\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//search.bilibili.com/all?keyword=%E6%AC%A7%E7%BE%8E%E9%9F%B3%E4%B9%90&from_source=video_tag"
+  },
+  {
+   "role": "link",
+   "name": "MV",
+   "locator": "[data-web-forager-browser-id=\"22\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//search.bilibili.com/all?keyword=MV&from_source=video_tag"
+  },
+  {
+   "role": "link",
+   "name": "索尼音乐中国",
+   "locator": "[data-web-forager-browser-id=\"23\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//space.bilibili.com/486906719/?spm_id_from=333.788.upinfo.detail.click"
+  },
+  {
+   "role": "link",
+   "name": "发消息",
+   "locator": "[data-web-forager-browser-id=\"24\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//message.bilibili.com/?spm_id_from=333.788.upinfo.detail.click#whisper/mid486906719"
+  },
+  {
+   "role": "link",
+   "name": "视频已失效",
+   "locator": "[data-web-forager-browser-id=\"25\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7/video/BV1V4UYY5EhD/?spm_id_from=333.788.recommend_more_video.-1&trackid=web_related_0.router-related-2479604-ptszh.1794044381259.481"
+  },
+  {
+   "role": "link",
+   "name": "CR400BF-AS-5421",
+   "locator": "[data-web-forager-browser-id=\"26\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//space.bilibili.com/3493084276984624/"
+  },
+  {
+   "role": "link",
+   "name": "大家好，我是Rick Astley,今天我入驻b站了！ doge",
+   "locator": "[data-web-forager-browser-id=\"27\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7/video/BV1eS4y157Ey/?spm_id_from=333.788.recommend_more_video.0&trackid=web_related_0.router-related-2479604-ptszh.1794044381259.481"
+  },
+  {
+   "role": "link",
+   "name": "Rickrocknroll",
+   "locator": "[data-web-forager-browser-id=\"28\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//space.bilibili.com/373025504/"
+  },
+  {
+   "role": "link",
+   "name": "刘德华《恭喜发财》！代入感真强，我已经在超市了！",
+   "locator": "[data-web-forager-browser-id=\"29\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7/video/BV1ad4y1V7wb/?spm_id_from=333.788.recommend_more_video.1&trackid=web_related_0.router-related-2479604-ptszh.1794044381259.481"
+  },
+  {
+   "role": "link",
+   "name": "4K音乐馆",
+   "locator": "[data-web-forager-browser-id=\"30\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//space.bilibili.com/2043250564/"
+  },
+  {
+   "role": "link",
+   "name": "当我们在校园合唱节中唱你被骗了……",
+   "locator": "[data-web-forager-browser-id=\"31\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7/video/BV1mv4y157NA/?spm_id_from=333.788.recommend_more_video.2&trackid=web_related_0.router-related-2479604-ptszh.1794044381259.481"
+  },
+  {
+   "role": "link",
+   "name": "阳光帅气的龙卷风",
+   "locator": "[data-web-forager-browser-id=\"32\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//space.bilibili.com/1677821154/"
+  },
+  {
+   "role": "link",
+   "name": "Life Goes On - Oliver Tree",
+   "locator": "[data-web-forager-browser-id=\"33\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7/video/BV1DK4y1G7uX/?spm_id_from=333.788.recommend_more_video.3&trackid=web_related_0.router-related-2479604-ptszh.1794044381259.481"
+  },
+  {
+   "role": "link",
+   "name": "华纳音乐国际",
+   "locator": "[data-web-forager-browser-id=\"34\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//space.bilibili.com/402585256/"
+  },
+  {
+   "role": "link",
+   "name": "【每天一遍，网抑再见】万恶之源，抖就完事了",
+   "locator": "[data-web-forager-browser-id=\"35\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7/video/BV1Ax411d7jD/?spm_id_from=333.788.recommend_more_video.4&trackid=web_related_0.router-related-2479604-ptszh.1794044381259.481"
+  },
+  {
+   "role": "link",
+   "name": "200斤的五条艾",
+   "locator": "[data-web-forager-browser-id=\"36\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//space.bilibili.com/34232005/"
+  },
+  {
+   "role": "link",
+   "name": "用一首歌骗了全球数十亿人，他为什么被称为全球最大“诈骗犯”？",
+   "locator": "[data-web-forager-browser-id=\"37\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7/video/BV1p98q6dEdz/?spm_id_from=333.788.recommend_more_video.5&trackid=web_related_0.router-related-2479604-ptszh.1794044381259.481"
+  },
+  {
+   "role": "link",
+   "name": "音乐Wu哥",
+   "locator": "[data-web-forager-browser-id=\"38\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//space.bilibili.com/193262326/"
+  },
+  {
+   "role": "link",
+   "name": "该视频已失效",
+   "locator": "[data-web-forager-browser-id=\"39\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7/video/BV1jz421R7V2/?spm_id_from=333.788.recommend_more_video.6&trackid=web_related_0.router-related-2479604-ptszh.1794044381259.481"
+  },
+  {
+   "role": "link",
+   "name": "鈡葉",
+   "locator": "[data-web-forager-browser-id=\"40\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//space.bilibili.com/548893050/"
+  },
+  {
+   "role": "link",
+   "name": "快拿这个视频去诈骗你们化学老师",
+   "locator": "[data-web-forager-browser-id=\"41\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7/video/BV1nG4y197jd/?spm_id_from=333.788.recommend_more_video.7&trackid=web_related_0.router-related-2479604-ptszh.1794044381259.481"
+  },
+  {
+   "role": "link",
+   "name": "根号六十四",
+   "locator": "[data-web-forager-browser-id=\"42\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//space.bilibili.com/515025249/"
+  },
+  {
+   "role": "link",
+   "name": "黑人抬棺原版视频",
+   "locator": "[data-web-forager-browser-id=\"43\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7/video/BV1NZ4y1j7nw/?spm_id_from=333.788.recommend_more_video.8&trackid=web_related_0.router-related-2479604-ptszh.1794044381259.481"
+  },
+  {
+   "role": "link",
+   "name": "比划大魔王",
+   "locator": "[data-web-forager-browser-id=\"44\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//space.bilibili.com/479724334/"
+  },
+  {
+   "role": "link",
+   "name": "【4K60FPS】【3D环绕】鸟叔《江南Style》动次打次神曲！请务必戴上耳机！",
+   "locator": "[data-web-forager-browser-id=\"45\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7/video/BV1ih41147Z6/?spm_id_from=333.788.recommend_more_video.9&trackid=web_related_0.router-related-2479604-ptszh.1794044381259.481"
+  },
+  {
+   "role": "link",
+   "name": "同学们的音乐君",
+   "locator": "[data-web-forager-browser-id=\"46\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//space.bilibili.com/696160102/"
+  },
+  {
+   "role": "link",
+   "name": "Yee",
+   "locator": "[data-web-forager-browser-id=\"47\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7/video/BV1Es41127M5/?spm_id_from=333.788.recommend_more_video.10&trackid=web_related_0.router-related-2479604-ptszh.1794044381259.481"
+  },
+  {
+   "role": "link",
+   "name": "炉石病娇KC",
+   "locator": "[data-web-forager-browser-id=\"48\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//space.bilibili.com/769743/"
+  },
+  {
+   "role": "link",
+   "name": "贾斯汀比伯联手The Kid LAROI新单《Stay》官方MV超清大首播",
+   "locator": "[data-web-forager-browser-id=\"49\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7/video/BV1nh41167Wh/?spm_id_from=333.788.recommend_more_video.11&trackid=web_related_0.router-related-2479604-ptszh.1794044381259.481"
+  },
+  {
+   "role": "link",
+   "name": "JustinBieber_CN",
+   "locator": "[data-web-forager-browser-id=\"50\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//space.bilibili.com/30322433/"
+  },
+  {
+   "role": "link",
+   "name": "【中英字幕】《baby》- Justin Bieber 贾斯汀比伯 1080P超高清MV",
+   "locator": "[data-web-forager-browser-id=\"51\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7/video/BV15f4y1A7Hi/?spm_id_from=333.788.recommend_more_video.12&trackid=web_related_0.router-related-2479604-ptszh.1794044381259.481"
+  },
+  {
+   "role": "link",
+   "name": "蛋蛋字幕侠",
+   "locator": "[data-web-forager-browser-id=\"52\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//space.bilibili.com/1179236221/"
+  },
+  {
+   "role": "link",
+   "name": "【新诈骗神曲】-《Together Forever》！",
+   "locator": "[data-web-forager-browser-id=\"53\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7/video/BV17dFWeXEzS/?spm_id_from=333.788.recommend_more_video.13&trackid=web_related_0.router-related-2479604-ptszh.1794044381259.481"
+  },
+  {
+   "role": "link",
+   "name": "真的是1：1复刻！无敌破坏王2彩蛋与原版大对比《Never Gonna Give You Up》",
+   "locator": "[data-web-forager-browser-id=\"54\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7/video/BV1xb41127T8/?spm_id_from=333.788.recommend_more_video.14&trackid=web_related_0.router-related-2479604-ptszh.1794044381259.481"
+  },
+  {
+   "role": "link",
+   "name": "荣了个格",
+   "locator": "[data-web-forager-browser-id=\"55\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//space.bilibili.com/38788906/"
+  },
+  {
+   "role": "link",
+   "name": "大家好，我是Rick Astley，我入驻b站了",
+   "locator": "[data-web-forager-browser-id=\"56\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7/video/BV1Mr4y1a7M5/?spm_id_from=333.788.recommend_more_video.15&trackid=web_related_0.router-related-2479604-ptszh.1794044381259.481"
+  },
+  {
+   "role": "link",
+   "name": "RICKASTLRY",
+   "locator": "[data-web-forager-browser-id=\"57\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//space.bilibili.com/520075112/"
+  },
+  {
+   "role": "link",
+   "name": "【4K60FPS】查理·普斯《See You Again》爆火神曲！珍惜身边的人！",
+   "locator": "[data-web-forager-browser-id=\"58\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7/video/BV1qU4y1F73A/?spm_id_from=333.788.recommend_more_video.16&trackid=web_related_0.router-related-2479604-ptszh.1794044381259.481"
+  },
+  {
+   "role": "link",
+   "name": "音乐私藏馆",
+   "locator": "[data-web-forager-browser-id=\"59\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//space.bilibili.com/229733301/"
+  },
+  {
+   "role": "link",
+   "name": "前奏秒杀的英文歌《The Way I Still Love You》",
+   "locator": "[data-web-forager-browser-id=\"60\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7/video/BV15F411t7br/?spm_id_from=333.788.recommend_more_video.17&trackid=web_related_0.router-related-2479604-ptszh.1794044381259.481"
+  },
+  {
+   "role": "link",
+   "name": "英乐分享君",
+   "locator": "[data-web-forager-browser-id=\"61\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//space.bilibili.com/702453625/"
+  },
+  {
+   "role": "link",
+   "name": "【4K】迈克尔·杰克逊《Beat it》1983 AI修复高清收藏版",
+   "locator": "[data-web-forager-browser-id=\"62\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7/video/BV1aZ4y1H7CK/?spm_id_from=333.788.recommend_more_video.18&trackid=web_related_0.router-related-2479604-ptszh.1794044381259.481"
+  },
+  {
+   "role": "link",
+   "name": "KG-Area21",
+   "locator": "[data-web-forager-browser-id=\"63\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//space.bilibili.com/33114953/"
+  },
+  {
+   "role": "link",
+   "name": "客服",
+   "locator": "[data-web-forager-browser-id=\"64\"]",
+   "href": "https://www.bilibili.com/video/BV1GJ411x7h7//www.bilibili.com/blackboard/help.html#%E5%B8%B8%E8%A7%81%E6%92%AD%E6%94%BE%E9%97%AE%E9%A2%98%E8%87%AA%E6%95%91%E6%96%B9%E6%B3%95"
+  },
+  {
+   "role": "link",
+   "name": "赛事库",
+   "locator": "[data-web-forager-browser-id=\"65\"]",
+   "href": "https://www.bilibili.com/v/game/match/"
+  },
+  {
+   "role": "link",
+   "name": "课堂",
+   "locator": "[data-web-forager-browser-id=\"66\"]",
+   "href": "https://www.bilibili.com/cheese/"
+  },
+  {
+   "role": "link",
+   "name": "2021拜年纪",
+   "locator": "[data-web-forager-browser-id=\"67\"]",
+   "href": "https://www.bilibili.com/festival/2021bnj"
+  },
+  {
+   "role": "text",
+   "name": "15.2万",
+   "locator": "[data-web-forager-browser-id=\"68\"]"
+  },
+  {
+   "role": "text",
+   "name": "2020-01-01 07:43:23",
+   "locator": "[data-web-forager-browser-id=\"69\"]"
+  },
+  {
+   "role": "text",
+   "name": "297.3万",
+   "locator": "[data-web-forager-browser-id=\"70\"]"
+  },
+  {
+   "role": "text",
+   "name": "129.1万",
+   "locator": "[data-web-forager-browser-id=\"71\"]"
+  },
+  {
+   "role": "text",
+   "name": "156.4万",
+   "locator": "[data-web-forager-browser-id=\"72\"]"
+  },
+  {
+   "role": "text",
+   "name": "50.6万",
+   "locator": "[data-web-forager-browser-id=\"73\"]"
+  },
+  {
+   "role": "text",
+   "name": "收起全部章节",
+   "locator": "[data-web-forager-browser-id=\"74\"]"
+  },
+  {
+   "role": "text",
+   "name": "关闭课程总结",
+   "locator": "[data-web-forager-browser-id=\"75\"]"
+  },
+  {
+   "role": "text",
+   "name": "暂无课程总结",
+   "locator": "[data-web-forager-browser-id=\"76\"]"
+  },
+  {
+   "role": "text",
+   "name": "发现《Never gonna give you up》",
+   "locator": "[data-web-forager-browser-id=\"77\"]"
+  },
+  {
+   "role": "text",
+   "name": "官方营业，欢迎一键三连~~~",
+   "locator": "[data-web-forager-browser-id=\"78\"]"
+  },
+  {
+   "role": "text",
+   "name": "豆包，你的自动化办公小助手！",
+   "locator": "[data-web-forager-browser-id=\"79\"]"
+  },
+  {
+   "role": "text",
+   "name": "4000+人感兴趣",
+   "locator": "[data-web-forager-browser-id=\"80\"]"
+  },
+  {
+   "role": "text",
+   "name": "接下来播放",
+   "locator": "[data-web-forager-browser-id=\"81\"]"
+  },
+  {
+   "role": "text",
+   "name": "视频已失效",
+   "locator": "[data-web-forager-browser-id=\"82\"]"
+  },
+  {
+   "role": "text",
+   "name": "CR400BF-AS-5421",
+   "locator": "[data-web-forager-browser-id=\"83\"]"
+  },
+  {
+   "role": "text",
+   "name": "大家好，我是Rick Astley,今天我入驻b站了！ doge",
+   "locator": "[data-web-forager-browser-id=\"84\"]"
+  },
+  {
+   "role": "text",
+   "name": "Rickrocknroll",
+   "locator": "[data-web-forager-browser-id=\"85\"]"
+  },
+  {
+   "role": "text",
+   "name": "刘德华《恭喜发财》！代入感真强，我已经在超市了！",
+   "locator": "[data-web-forager-browser-id=\"86\"]"
+  },
+  {
+   "role": "text",
+   "name": "4K音乐馆",
+   "locator": "[data-web-forager-browser-id=\"87\"]"
+  },
+  {
+   "role": "text",
+   "name": "当我们在校园合唱节中唱你被骗了……",
+   "locator": "[data-web-forager-browser-id=\"88\"]"
+  },
+  {
+   "role": "text",
+   "name": "阳光帅气的龙卷风",
+   "locator": "[data-web-forager-browser-id=\"89\"]"
+  },
+  {
+   "role": "text",
+   "name": "Life Goes On - Oliver Tree",
+   "locator": "[data-web-forager-browser-id=\"90\"]"
+  },
+  {
+   "role": "text",
+   "name": "华纳音乐国际",
+   "locator": "[data-web-forager-browser-id=\"91\"]"
+  },
+  {
+   "role": "text",
+   "name": "【每天一遍，网抑再见】万恶之源，抖就完事了",
+   "locator": "[data-web-forager-browser-id=\"92\"]"
+  },
+  {
+   "role": "text",
+   "name": "200斤的五条艾",
+   "locator": "[data-web-forager-browser-id=\"93\"]"
+  },
+  {
+   "role": "text",
+   "name": "用一首歌骗了全球数十亿人，他为什么被称为全球最大“诈骗犯”？",
+   "locator": "[data-web-forager-browser-id=\"94\"]"
+  },
+  {
+   "role": "text",
+   "name": "音乐Wu哥",
+   "locator": "[data-web-forager-browser-id=\"95\"]"
+  },
+  {
+   "role": "text",
+   "name": "该视频已失效",
+   "locator": "[data-web-forager-browser-id=\"96\"]"
+  },
+  {
+   "role": "text",
+   "name": "快拿这个视频去诈骗你们化学老师",
+   "locator": "[data-web-forager-browser-id=\"97\"]"
+  },
+  {
+   "role": "text",
+   "name": "根号六十四",
+   "locator": "[data-web-forager-browser-id=\"98\"]"
+  },
+  {
+   "role": "text",
+   "name": "黑人抬棺原版视频",
+   "locator": "[data-web-forager-browser-id=\"99\"]"
+  },
+  {
+   "role": "text",
+   "name": "比划大魔王",
+   "locator": "[data-web-forager-browser-id=\"100\"]"
+  },
+  {
+   "role": "text",
+   "name": "【4K60FPS】【3D环绕】鸟叔《江南Style》动次打次神曲！请务必戴上耳机！",
+   "locator": "[data-web-forager-browser-id=\"101\"]"
+  },
+  {
+   "role": "text",
+   "name": "同学们的音乐君",
+   "locator": "[data-web-forager-browser-id=\"102\"]"
+  },
+  {
+   "role": "text",
+   "name": "炉石病娇KC",
+   "locator": "[data-web-forager-browser-id=\"103\"]"
+  },
+  {
+   "role": "text",
+   "name": "贾斯汀比伯联手The Kid LAROI新单《Stay》官方MV超清大首播",
+   "locator": "[data-web-forager-browser-id=\"104\"]"
+  },
+  {
+   "role": "text",
+   "name": "JustinBieber_CN",
+   "locator": "[data-web-forager-browser-id=\"105\"]"
+  },
+  {
+   "role": "text",
+   "name": "【中英字幕】《baby》- Justin Bieber 贾斯汀比伯 1080P超高清MV",
+   "locator": "[data-web-forager-browser-id=\"106\"]"
+  },
+  {
+   "role": "text",
+   "name": "蛋蛋字幕侠",
+   "locator": "[data-web-forager-browser-id=\"107\"]"
+  },
+  {
+   "role": "text",
+   "name": "【新诈骗神曲】-《Together Forever》！",
+   "locator": "[data-web-forager-browser-id=\"108\"]"
+  },
+  {
+   "role": "text",
+   "name": "真的是1：1复刻！无敌破坏王2彩蛋与原版大对比《Never Gonna Give You Up》",
+   "locator": "[data-web-forager-browser-id=\"109\"]"
+  },
+  {
+   "role": "text",
+   "name": "大家好，我是Rick Astley，我入驻b站了",
+   "locator": "[data-web-forager-browser-id=\"110\"]"
+  },
+  {
+   "role": "text",
+   "name": "RICKASTLRY",
+   "locator": "[data-web-forager-browser-id=\"111\"]"
+  },
+  {
+   "role": "text",
+   "name": "【4K60FPS】查理·普斯《See You Again》爆火神曲！珍惜身边的人！",
+   "locator": "[data-web-forager-browser-id=\"112\"]"
+  },
+  {
+   "role": "text",
+   "name": "音乐私藏馆",
+   "locator": "[data-web-forager-browser-id=\"113\"]"
+  },
+  {
+   "role": "text",
+   "name": "前奏秒杀的英文歌《The Way I Still Love You》",
+   "locator": "[data-web-forager-browser-id=\"114\"]"
+  },
+  {
+   "role": "text",
+   "name": "英乐分享君",
+   "locator": "[data-web-forager-browser-id=\"115\"]"
+  },
+  {
+   "role": "text",
+   "name": "【4K】迈克尔·杰克逊《Beat it》1983 AI修复高清收藏版",
+   "locator": "[data-web-forager-browser-id=\"116\"]"
+  },
+  {
+   "role": "text",
+   "name": "KG-Area21",
+   "locator": "[data-web-forager-browser-id=\"117\"]"
+  },
+  {
+   "role": "text",
+   "name": "入职鹰角成为卫戍协议策划的一天",
+   "locator": "[data-web-forager-browser-id=\"118\"]"
+  }
+ ]
+}
