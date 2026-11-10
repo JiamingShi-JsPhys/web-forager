@@ -1,5 +1,78 @@
 # Changelog
 
+## 1.2.0 — 2026-11-09
+
+Search is no longer the only way in. A site's own search page and its feed are
+first-class routes now, every engine attempt is reported, and one run can be
+sent through a proxy.
+
+### Added
+
+- **`--action find` (`web_find`)**: search inside one site through the site's
+  own search page. It tries `/?s=`, `/search?q=`, `/?search=` and
+  `/search?query=`, ranks the page's links by query coverage, and fetches the
+  best ones. This is the route that keeps working when the general engines
+  answer with dictionary pages or a verification wall.
+- **`--action feed` (`web_feed`)**: read a site's RSS/Atom feed, discovering it
+  from `<link rel=alternate>` when given the site URL instead of the feed URL.
+- **`engine_report`**: every search response now carries one entry per engine
+  tried — `ok`, `results`, `ms`, and `error` when it failed, plus `fallback`
+  when the engine was asked only because the first answer was thin. "Search is
+  broken" becomes "Bing answered, Sogou showed a verification page".
+- **`doctor --probe` (`web_doctor {probe: true}`)**: asks 360, Bing, Sogou, the
+  WeChat index and DuckDuckGo once each and reports which ones answer from this
+  network, with latency.
+- **`--proxy URL`** and `proxy` on the MCP tools. Requests already honoured
+  `HTTPS_PROXY` / `ALL_PROXY`; an explicit proxy now overrides them for one run,
+  and `doctor` reports the proxy in use with credentials redacted.
+
+### Changed
+
+- The MCP server exposes ten HTTP tools instead of eight; the README and
+  `SKILL.md` document the two routes that do not depend on a search engine.
+- `doctor` reports the proxy source (`config` or `env:NAME`) without printing a
+  password.
+
+### Documentation
+
+- **The disclaimer forbids building a profile of an identifiable person.**
+  Collecting, aggregating or inferring personal information, or using it for
+  doxxing, harassment or stalking, is prohibited and is the user's own legal
+  responsibility. It appears in `--help`, `manifest.json`, the README pair,
+  `SKILL.md` and every host rule file.
+- **The per-host install commands moved to `docs/INSTALL_COMMANDS.md` and
+  `docs/INSTALL_COMMANDS_zh.md`.** Methods 1 and 3 stay in the README because
+  they are three lines each; Method 2, which is a page of commands, is one link.
+- **The READMEs gained an Acknowledgements section** listing the reporter of
+  issue #1 by name, with a link to `docs/ACKNOWLEDGEMENTS.md` /
+  `docs/ACKNOWLEDGEMENTS_zh.md` for the details.
+
+### Acknowledgements
+
+- **NotFatJustRound** ([issue #1](https://github.com/JiamingShi-JsPhys/web-forager/issues/1))
+  reported that `web_search` returned every page body twice — once in `pages`,
+  once in `results` — which doubled the response and pushed the tail past an
+  agent's size limit; the compact `results` index in 1.0.2 came from that report.
+
+### Fixed
+
+- **Links inside `<article><header>` are no longer skipped.** A results page
+  commonly wraps each card's title in an article header; the universal
+  "skip `<header>`" rule silently dropped exactly the links a search page
+  offers. Page-level headers and navigations are still skipped.
+- `doctor --probe` makes one attempt per engine instead of retrying, so a
+  blocking engine costs one timeout rather than three.
+- `.cursor/rules/web-forager.mdc` carried `v1.0.0` in its front matter, so
+  `install.py --only cursor` wrote a stale label; it now follows the release
+  version.
+
+### Tests
+
+- **172 Python tests** and **60 browser tests**, all offline. The new suite
+  covers site search against a local WordPress-style page, feed discovery from a
+  page link and from a direct feed, the per-engine report, the probe, proxy
+  wiring and the redaction of proxy credentials.
+
 ## 1.1.0 — 2026-11-08
 
 Browser mode joins web-forager, and an audit pass follows it. The HTTP toolkit

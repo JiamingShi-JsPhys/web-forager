@@ -1,6 +1,6 @@
 ---
 name: web-forager
-version: 1.1.0
+version: 1.2.0
 description: >
   Polite, robots-aware web information gathering with two modes. HTTP mode
   searches 360/Bing/Sogou/WeChat, reads HTML/PDF/DOCX/XLSX/EPUB/CSV and RSS/Atom,
@@ -13,7 +13,7 @@ description: >
   arXiv/Crossref/PubMed/DOI. Ships a CLI, an OpenCLI-style --agent envelope and
   two stdio MCP servers.
 metadata:
-  version: 1.1.0
+  version: 1.2.0
   author: Jiaming Shi
   license: MIT
   entry_point: python run.py
@@ -23,7 +23,7 @@ metadata:
 
 > ## 免责声明（务必阅读）
 >
-> **本插件仅供学习与信息收集使用。使用者需遵守目标网站的 Terms of Service 及相关版权法律。禁止用于抓取个人隐私数据或进行恶意并发攻击。**
+> **本插件仅供学习与信息收集使用。使用者需遵守目标网站的 Terms of Service 及相关版权法律。禁止用于恶意并发攻击。严禁收集、聚合或推断特定自然人的个人信息，或将其用于人肉搜索、骚扰、跟踪等侵害他人隐私的活动；此类用法产生的法律责任由使用者自行承担。**
 
 # web-forager
 
@@ -36,7 +36,7 @@ and (optional) `playwright` / `pypdf` are used. No GPL/AGPL dependency.
 - **Standard-library formats:** DOCX, XLSX, EPUB, CSV, RSS, Atom, sitemap
 - **MCP:** `python mcp_server.py` (stdio JSON-RPC; tools: web_fetch,
   web_search, web_surf, web_scholar, web_map, web_bilibili, web_clean,
-  web_doctor) and
+  web_doctor, web_find, web_feed) and
   `node browser/mcp_server.js` (browser_list, browser_run, browser_session,
   browser_doctor)
 
@@ -63,6 +63,10 @@ python run.py --action fetch --query "<KEYWORDS>" --engine all
 # a Chinese person or institution name: the general engines answer with
 # dictionary and directory pages, so ask the article index directly
 python run.py --action fetch --query "<中文人名>" --engine weixin --max-pages 3
+# when the engines return nothing useful, search the site you already trust
+python run.py --action find --site the-decoder.com --query "OpenAI watermark" --max-pages 3
+# or read that site's feed directly
+python run.py --action feed --url https://the-decoder.com/ --num-results 10
 
 # local HTML / Office / EPUB / CSV -> Markdown
 python run.py --action clean --input page.html --out page.md --format markdown
@@ -200,6 +204,8 @@ Browser sessions live in `~/.web-forager/browser/sessions/` (override with
 | `map --url` | site, sitemap or robots.txt URL | URL inventory + sitemap sources |
 | `bili --mode feed` | home page | feed cards + optionally fetched videos |
 | `bili --mode video` | BV id or video URL | one normalised video record |
+| `find --site` | domain + query | that site's search page, ranked links, fetched pages |
+| `feed --url` | site URL or feed URL | feed items + Markdown digest |
 | `doctor` | nothing | dependency report with install hints |
 | `bili --mode related` | BV id or video URL | recommendation list |
 | `bili --mode surf` | BV id or keyword | relationship-chain traversal |
@@ -211,6 +217,9 @@ Browser sessions live in `~/.web-forager/browser/sessions/` (override with
 |---|---|---|
 | `--engine auto\|all\|360\|bing\|sogou\|weixin\|duckduckgo` | `auto` | search backend; auto=360+Bing (mostly-CJK queries: 360+Sogou+搜狗微信, Bing fallback), all adds Sogou and 搜狗微信 |
 | `--max-pages N` | `3` | result pages to fetch; `0` returns the search results only |
+| `--site HOST` | off | `find`: the site whose own search page is read |
+| `--probe` | off | `doctor`: ask every search engine once and report which answer |
+| `--proxy URL` | env | route every request through this proxy (`HTTPS_PROXY` / `ALL_PROXY` otherwise) |
 | `--search-pages N` | `1` | result pages read per engine |
 | `--source arxiv\|crossref\|pubmed\|doi` | `arxiv` | scholarly source |
 | `--sort relevance\|submittedDate\|lastUpdatedDate` | `relevance` | arXiv sort |
@@ -277,8 +286,8 @@ node browser/mcp_server.js    # browser mode
 Both speak newline-delimited JSON-RPC 2.0 on stdin/stdout; `.mcp.json`
 registers them as `web-forager` and `web-forager-browser`. HTTP tools:
 `web_fetch`, `web_search`, `web_surf`, `web_scholar`, `web_map`,
-`web_bilibili`, `web_clean`, `web_doctor`. Browser tools: `browser_list`, `browser_run`,
-`browser_session`, `browser_doctor`. Tool failures return `isError: true` with
+`web_bilibili`, `web_clean`, `web_doctor`, `web_find`, `web_feed`. Browser tools:
+`browser_list`, `browser_run`, `browser_session`, `browser_doctor`. Tool failures return `isError: true` with
 `{"ok":false,"error":{...}}` as text; protocol errors use JSON-RPC codes.
 
 Two switches keep a search cheap: `max_pages: 0` returns the result list with

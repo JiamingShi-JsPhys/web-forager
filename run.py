@@ -34,7 +34,7 @@ MCP
     ``python mcp_server.py``  stdio JSON-RPC server exposing the same engine.
 
 本插件仅供学习与信息收集使用。使用者需遵守目标网站的 Terms of Service 及相关版权法律。
-禁止用于抓取个人隐私数据或进行恶意并发攻击。
+禁止用于恶意并发攻击。严禁收集、聚合或推断特定自然人的个人信息，或将其用于人肉搜索、骚扰、跟踪等侵害他人隐私的活动；此类用法产生的法律责任由使用者自行承担。
 """
 
 from __future__ import annotations
@@ -77,11 +77,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--action",
         required=True,
-        choices=["fetch", "clean", "bili", "surf", "scholar", "map", "doctor"],
+        choices=["fetch", "find", "feed", "clean", "bili", "surf", "scholar", "map", "doctor"],
         help="operation to run",
     )
     parser.add_argument("--url", help="target URL, or a Bilibili BV/av id (fetch/clean/bili/surf/map)")
     parser.add_argument("--query", help="keyword query (fetch/bili/surf/scholar)")
+    parser.add_argument("--site", help="domain or base URL to search inside (find)")
     parser.add_argument("--input", dest="input_path", help="local HTML/PDF/DOCX/XLSX/EPUB/CSV file (clean)")
     parser.add_argument(
         "--source",
@@ -166,6 +167,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="DANGEROUS: skip robots.txt checks (only for resources you are authorised to access)",
     )
     parser.add_argument("--user-agent", default=engine.DEFAULT_USER_AGENT, help="explicit User-Agent string")
+    parser.add_argument(
+        "--probe",
+        action="store_true",
+        help="doctor: ask each search engine once and report which ones answer",
+    )
+    parser.add_argument(
+        "--proxy",
+        default="",
+        help="route every request through this proxy (default: HTTPS_PROXY / ALL_PROXY from the environment)",
+    )
     parser.add_argument("--format", choices=["json", "markdown"], default="json", help="stdout format")
     parser.add_argument(
         "--full-results",
@@ -215,6 +226,7 @@ def build_config(args: argparse.Namespace) -> engine.FetchConfig:
         extract_links=args.action == "surf",
         follow=args.follow,
         search_engine=args.engine,
+        proxy=args.proxy,
         search_pages=max(1, args.search_pages),
         cache=args.cache,
         cache_ttl=max(0, args.cache_ttl),
@@ -378,6 +390,32 @@ def _envelope(action: str, payload: dict, args: argparse.Namespace) -> dict:
     """Build the response envelope, honouring --full-results."""
 
     return engine.build_envelope(action, payload, full_results=bool(getattr(args, "full_results", False)))
+
+
+def cmd_find(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
+    if not args.site:
+        raise ValueError("--action find needs --site")
+    if not args.query:
+        raise ValueError("--action find needs --query")
+    payload = engine.find_within_site(
+        args.site, args.query, config, max_pages=args.max_pages
+    )
+    return _envelope("find", payload, args)
+
+
+def cmd_feed(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
+    if not args.url:
+        raise ValueError("--action feed needs --url")
+    payload = engine.discover_feed(args.url, config)
+    payload["results"] = [
+        {
+            "url": item.get("url", ""),
+            "title": item.get("title", ""),
+            "published": item.get("published", ""),
+        }
+        for item in payload.get("items") or []
+    ]
+    return _envelope("feed", payload, args)
 
 
 def cmd_fetch(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
@@ -628,7 +666,10 @@ def cmd_bili(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
 def cmd_doctor(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
     """Report optional dependencies so an agent can install what is missing."""
 
-    return _envelope("doctor", engine.doctor_report(), args)
+    payload = engine.doctor_report(config)
+    if getattr(args, "probe", False):
+        payload["search_probe"] = engine.probe_engines(config)
+    return _envelope("doctor", payload, args)
 
 
 def _fail(
@@ -661,6 +702,10 @@ def main(argv: list[str] | None = None) -> int:
         config = build_config(args)
         if args.action == "fetch":
             document = cmd_fetch(args, config)
+        elif args.action == "find":
+            document = cmd_find(args, config)
+        elif args.action == "feed":
+            document = cmd_feed(args, config)
         elif args.action == "clean":
             document = cmd_clean(args, config)
         elif args.action == "surf":

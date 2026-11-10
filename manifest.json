@@ -1,6 +1,6 @@
 {
   "name": "web-forager",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "stage": "domain_extensions",
   "input_types": [
     "url",
@@ -35,6 +35,8 @@
   "entrypoint": "run.py",
   "actions": [
     "fetch",
+    "find",
+    "feed",
     "clean",
     "bili",
     "surf",
@@ -52,7 +54,9 @@
       "web_map",
       "web_bilibili",
       "web_clean",
-      "web_doctor"
+      "web_doctor",
+      "web_find",
+      "web_feed"
     ]
   },
   "browser": {
@@ -78,7 +82,8 @@
       "tools": [
         "browser_list",
         "browser_run",
-        "browser_session"
+        "browser_session",
+        "browser_doctor"
       ]
     }
   },
@@ -86,6 +91,6 @@
   "author": {
     "name": "Jiaming Shi"
   },
-  "description": "Clean-room, robots-aware web information gathering for agents and analysts. HTTP mode searches 360/Bing/Sogou, reads HTML/PDF/DOCX/XLSX/EPUB/CSV and RSS/Atom, collects public pages from Bilibili through a dedicated adapter and reads other sites as ordinary pages, extracts metadata and tables, discovers sitemaps and caches politely. Browser mode drives a real browser through a pluggable bridge for login-state pages, rendered content, danmaku and seven read-only playbooks covering Bilibili, Zhihu and Xiaohongshu. Optional scholarly lookups cover arXiv/Crossref/PubMed/DOI. Ships a CLI, an --agent envelope, and two stdio MCP servers.",
-  "disclaimer": "本插件仅供学习与信息收集使用。使用者需遵守目标网站的 Terms of Service 及相关版权法律。禁止用于抓取个人隐私数据或进行恶意并发攻击。"
+  "description": "Clean-room, robots-aware web information gathering for agents and analysts. HTTP mode searches 360/Bing/Sogou/WeChat, searches inside a site through its own search page, reads HTML/PDF/DOCX/XLSX/EPUB/CSV and RSS/Atom, collects public pages from Bilibili through a dedicated adapter and reads other sites as ordinary pages, extracts metadata and tables, discovers sitemaps and caches politely. Browser mode drives a real browser through a pluggable bridge for login-state pages, rendered content, danmaku and seven read-only playbooks covering Bilibili, Zhihu and Xiaohongshu. Optional scholarly lookups cover arXiv/Crossref/PubMed/DOI. Ships a CLI, an --agent envelope, and two stdio MCP servers.",
+  "disclaimer": "本插件仅供学习与信息收集使用。使用者需遵守目标网站的 Terms of Service 及相关版权法律。禁止用于恶意并发攻击。严禁收集、聚合或推断特定自然人的个人信息，或将其用于人肉搜索、骚扰、跟踪等侵害他人隐私的活动；此类用法产生的法律责任由使用者自行承担。"
 }

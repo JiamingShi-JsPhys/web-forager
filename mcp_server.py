@@ -142,7 +142,55 @@ _TOOLS: list[dict[str, Any]] = [
     {
         "name": "web_doctor",
         "description": "Report which optional capabilities this installation can serve, with the install command for each missing one.",
-        "inputSchema": {"type": "object", "properties": {}},
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "probe": {
+                    "type": "boolean",
+                    "description": "Ask each search engine once and report which ones answer from this network.",
+                },
+                "proxy": {"type": "string", "description": "Proxy URL to report as configured."},
+            },
+        },
+    },
+    {
+        "name": "web_find",
+        "description": "Search inside one site through the site's own search page, then fetch the best matching pages.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "site": {"type": "string", "description": "Domain or base URL, e.g. the-decoder.com."},
+                "query": {"type": "string"},
+                "max_pages": {"type": "integer", "minimum": 0, "maximum": 20},
+                "respect_robots": {
+                    "type": "boolean",
+                    "description": "Check robots.txt before fetching (default true).",
+                },
+                "proxy": {"type": "string"},
+                "fullResults": {
+                    "type": "boolean",
+                    "description": "Repeat every page record inside results as well as pages.",
+                },
+            },
+            "required": ["site", "query"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "web_feed",
+        "description": "Read a site's RSS/Atom feed, discovering it from the page when given the site URL.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string"},
+                "num_results": {"type": "integer", "minimum": 1, "maximum": 50},
+                "respect_robots": {"type": "boolean"},
+                "proxy": {"type": "string"},
+                "fullResults": {"type": "boolean"},
+            },
+            "required": ["url"],
+            "additionalProperties": False,
+        },
     },
     {
         "name": "web_clean",
@@ -184,6 +232,7 @@ def _config(arguments: dict[str, Any]) -> engine.FetchConfig:
         # it off explicitly, which is the same switch the CLI spells
         # --ignore-robots.
         respect_robots=bool(arguments.get("respect_robots", True)),
+        proxy=str(arguments.get("proxy", "")),
         verbose=False,
     )
     config.validate()
@@ -203,11 +252,13 @@ def _tool_search(arguments: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("query is required")
     config = _config(arguments)
     query = str(arguments["query"])
+    engine_report: list[dict[str, Any]] = []
     results = engine.search(
         query,
         config,
         engine=str(arguments.get("engine", "auto")),
         limit=config.num_results,
+        report=engine_report,
     )
     pages: list[dict[str, Any]] = []
     fetch_limit = int(arguments.get("max_pages", 3))
@@ -225,6 +276,7 @@ def _tool_search(arguments: dict[str, Any]) -> dict[str, Any]:
         "query": query,
         "engine": str(arguments.get("engine", "auto")),
         "search_results": results,
+        "engine_report": engine_report,
         "pages": pages,
     }
     warnings = engine.search_warnings(
@@ -310,7 +362,45 @@ def _tool_bilibili(arguments: dict[str, Any]) -> dict[str, Any]:
 
 
 def _tool_doctor(arguments: dict[str, Any]) -> dict[str, Any]:
-    return engine.build_envelope("doctor", engine.doctor_report())
+    config = _config(arguments)
+    payload = engine.doctor_report(config)
+    if arguments.get("probe"):
+        payload["search_probe"] = engine.probe_engines(config)
+    return engine.build_envelope("doctor", payload)
+
+
+def _tool_find(arguments: dict[str, Any]) -> dict[str, Any]:
+    site = str(arguments.get("site", "")).strip()
+    query = str(arguments.get("query", "")).strip()
+    if not site:
+        raise ValueError("site is required")
+    if not query:
+        raise ValueError("query is required")
+    config = _config(arguments)
+    payload = engine.find_within_site(
+        site,
+        query,
+        config,
+        max_pages=int(arguments.get("max_pages", config.max_pages)),
+    )
+    return engine.build_envelope("find", payload, full_results=_full_results(arguments))
+
+
+def _tool_feed(arguments: dict[str, Any]) -> dict[str, Any]:
+    url = str(arguments.get("url", "")).strip()
+    if not url:
+        raise ValueError("url is required")
+    config = _config(arguments)
+    payload = engine.discover_feed(url, config)
+    payload["results"] = [
+        {
+            "url": item.get("url", ""),
+            "title": item.get("title", ""),
+            "published": item.get("published", ""),
+        }
+        for item in payload.get("items") or []
+    ]
+    return engine.build_envelope("feed", payload, full_results=_full_results(arguments))
 
 
 def _tool_clean(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -363,6 +453,8 @@ _DISPATCH: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "web_map": _tool_map,
     "web_bilibili": _tool_bilibili,
     "web_doctor": _tool_doctor,
+    "web_find": _tool_find,
+    "web_feed": _tool_feed,
     "web_clean": _tool_clean,
 }
 

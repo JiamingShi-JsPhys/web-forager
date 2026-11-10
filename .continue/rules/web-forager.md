@@ -1,15 +1,15 @@
 ---
-description: web-forager operating rules (v1.1.0)
+description: web-forager operating rules (v1.2.0)
 alwaysApply: true
 ---
 
-# web-forager — agent operating rules (v1.1.0)
+# web-forager — agent operating rules (v1.2.0)
 
 web-forager is a clean-room, robots-aware public-web intelligence layer. It
 searches, fetches, extracts and browses the open web to collect public information; it
 does not bypass logins, paywalls or anti-bot systems.
 
-> **免责声明**：本插件仅供学习与信息收集使用。使用者需遵守目标网站的 Terms of Service 及相关版权法律。禁止用于抓取个人隐私数据或进行恶意并发攻击。
+> **免责声明**：本插件仅供学习与信息收集使用。使用者需遵守目标网站的 Terms of Service 及相关版权法律。禁止用于恶意并发攻击。严禁收集、聚合或推断特定自然人的个人信息，或将其用于人肉搜索、骚扰、跟踪等侵害他人隐私的活动；此类用法产生的法律责任由使用者自行承担。
 
 ## Install as one plugin
 
@@ -21,12 +21,14 @@ the MCP server and `SKILL.md` share one engine and one robots/cache pipeline.
 
 - `python run.py --action fetch --url <URL>` — one page
 - `python run.py --action fetch --query <TEXT>` — search, then fetch results
+- `python run.py --action find --site <HOST> --query <TEXT>` — the site's own search page
+- `python run.py --action feed --url <SITE|FEED>` — RSS/Atom, discovered if needed
 - `python run.py --action clean --input <FILE>` — local HTML/PDF/Office/CSV
 - `python run.py --action surf --query <TEXT>|--url <URL>` — link-by-link browse
 - `python run.py --action scholar --source arxiv|crossref|pubmed|doi --query <TEXT>`
 - `python run.py --action map --url <SITE>` — sitemap URL discovery
 - `python run.py --action bili --mode feed|video|search|related|surf`
-- `python run.py --action doctor` — dependency report with install hints
+- `python run.py --action doctor [--probe]` — dependency report; `--probe` checks each search engine
 - `python mcp_server.py` — stdio JSON-RPC with the same capabilities
 - `.dsh-plugin/index.js` — non-Python harness entry (`apply(ctx)`)
 

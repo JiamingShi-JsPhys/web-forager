@@ -27,8 +27,10 @@ Compliance
 from __future__ import annotations
 
 import base64
+import dataclasses
 import html as html_lib
 import json
+import os
 import re
 import sys
 import threading
@@ -44,7 +46,7 @@ import requests
 from bs4 import BeautifulSoup
 from bs4.element import NavigableString, Tag
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 DEFAULT_USER_AGENT = (
     f"WebForager/{__version__} (Information Gathering; "
@@ -53,7 +55,7 @@ DEFAULT_USER_AGENT = (
 
 DISCLAIMER = (
     "本插件仅供学习与信息收集使用。使用者需遵守目标网站的 Terms of Service 及相关版权法律。"
-    "禁止用于抓取个人隐私数据或进行恶意并发攻击。"
+    "禁止用于恶意并发攻击。严禁收集、聚合或推断特定自然人的个人信息，或将其用于人肉搜索、骚扰、跟踪等侵害他人隐私的活动；此类用法产生的法律责任由使用者自行承担。"
 )
 
 # ---------------------------------------------------------------------------
@@ -160,6 +162,7 @@ class FetchConfig:
     chunk_size: int = 0
     wait_for: str = ""
     scroll: int = 0
+    proxy: str = ""               # http(s) proxy for every request; "" uses the environment
 
     def validate(self) -> None:
         if self.render not in ("auto", "never", "always"):
@@ -188,6 +191,10 @@ class FetchConfig:
             raise ValueError("chunk_size must be >= 0")
         if self.scroll < 0:
             raise ValueError("scroll must be >= 0")
+        if self.proxy and "://" in self.proxy:
+            scheme = self.proxy.split("://", 1)[0].lower()
+            if scheme not in ("http", "https", "socks5", "socks5h"):
+                raise ValueError("proxy must be an http(s) or socks5 URL")
         if not self.user_agent or len(self.user_agent) < 8:
             raise ValueError("user_agent must be a descriptive string")
 
@@ -675,6 +682,10 @@ class HttpFetcher:
                 "Accept-Encoding": "gzip, deflate",
             }
         )
+        if config.proxy:
+            # An explicit proxy wins over the environment; requests itself still
+            # honours HTTPS_PROXY / ALL_PROXY when this is empty.
+            self.session.proxies.update({"http": config.proxy, "https": config.proxy})
         self.robots = RobotsCache(config)
         self.limiter = RateLimiter(config.delay)
 
@@ -1057,6 +1068,7 @@ def search(
     engine: str = "auto",
     limit: Optional[int] = None,
     fetcher: Optional[HttpFetcher] = None,
+    report: Optional[list[dict[str, Any]]] = None,
 ) -> list[dict[str, str]]:
     """Return ``[{title, url, snippet, source}]`` for a keyword query.
 
@@ -1064,6 +1076,10 @@ def search(
     index for a mostly-CJK query), ``all`` (every engine), ``360``, ``bing``,
     ``sogou``, ``weixin`` or ``duckduckgo``. ``auto`` asks one more engine when
     the answer holds fewer than three distinct results.
+
+    Pass ``report`` to collect one entry per engine tried — name, whether it
+    answered, how many results and how long it took — so a caller in a hostile
+    network can see which backend is actually reachable.
 
     Search endpoints are query interfaces, not target pages.  robots.txt
     therefore applies to the *result pages* we later fetch, not to the query
@@ -1104,24 +1120,37 @@ def search(
     groups: list[tuple[str, list[dict[str, str]]]] = []
     errors: list[str] = []
 
-    def collect(names: list[str]) -> None:
+    def collect(names: list[str], fallback: bool = False) -> None:
         for name in names:
+            started = time.monotonic()
+            entry: dict[str, Any] = {"engine": name}
+            if fallback:
+                entry["fallback"] = True
             try:
-                groups.append(
-                    (
-                        name,
-                        _search_one(
-                            name, query, config, limit, fetcher, pages=config.search_pages
-                        ),
-                    )
+                items = _search_one(
+                    name, query, config, limit, fetcher, pages=config.search_pages
+                )
+                groups.append((name, items))
+                entry.update(
+                    ok=True,
+                    results=len(items),
+                    ms=round((time.monotonic() - started) * 1000),
                 )
             except Exception as exc:  # one engine failing must not kill the query
                 errors.append(f"{name}: {exc}")
+                entry.update(
+                    ok=False,
+                    results=0,
+                    error=str(exc),
+                    ms=round((time.monotonic() - started) * 1000),
+                )
+            if report is not None:
+                report.append(entry)
 
     try:
         collect(engines)
         if fallback_engines and (not groups or _thin_results(groups, limit)):
-            collect(fallback_engines)
+            collect(fallback_engines, fallback=True)
     finally:
         if own_fetcher:
             fetcher.close()
@@ -2365,6 +2394,24 @@ _SKIP_LINK_WORDS = (
 _SKIP_LINK_EXTENSIONS = (".zip", ".rar", ".7z", ".exe", ".dmg", ".apk", ".mp4", ".mp3", ".iso")
 
 
+def _link_in_skipped_region(anchor: Tag) -> bool:
+    """True for chrome (nav, forms, page header) but not an article's header.
+
+    A results page commonly wraps each card's title in ``<article><header>``;
+    skipping every ``<header>`` silently dropped the very links a caller wants.
+    """
+
+    inside_content = anchor.find_parent(["article", "main"]) is not None
+    for parent in anchor.parents:
+        name = parent.name
+        if name not in _SKIP_TAGS:
+            continue
+        if name == "header" and inside_content:
+            continue
+        return True
+    return False
+
+
 def extract_links(
     html: str,
     base_url: str,
@@ -2386,7 +2433,7 @@ def extract_links(
     order = 0
 
     for anchor in soup.find_all("a", href=True):
-        if any(parent.name in _SKIP_TAGS for parent in anchor.parents):
+        if _link_in_skipped_region(anchor):
             continue
         url = absolute_url(_attr_text(anchor, "href"), base_url)
         if not url or url in seen:
@@ -2760,6 +2807,247 @@ def search_warnings(
     return warnings
 
 
+SITE_SEARCH_TEMPLATES = (
+    "/?s={query}",
+    "/search?q={query}",
+    "/?search={query}",
+    "/search?query={query}",
+)
+
+
+def find_within_site(
+    site: str,
+    query: str,
+    config: Optional[FetchConfig] = None,
+    fetcher: Optional[HttpFetcher] = None,
+    max_pages: Optional[int] = None,
+) -> dict[str, Any]:
+    """Search inside one site through the site's own search page.
+
+    The general engines are unreliable in some networks while a WordPress-style
+    ``/?s=`` page answers directly. This reads that page, ranks its links by
+    query coverage, and fetches the best ones — the same route a person takes
+    when they already know where the content lives.
+    """
+
+    config = config or FetchConfig()
+    config.validate()
+    site = (site or "").strip()
+    query = (query or "").strip()
+    if not site:
+        raise ValueError("site must not be empty")
+    if not query:
+        raise ValueError("query must not be empty")
+    site_url = normalize_url(site if "://" in site else "https://" + site)
+    pages_limit = config.max_pages if max_pages is None else max(0, max_pages)
+    own_fetcher = fetcher is None
+    fetcher = fetcher or HttpFetcher(config)
+
+    attempts: list[dict[str, Any]] = []
+    page: Optional[HttpResponse] = None
+    search_url = ""
+    try:
+        for template in SITE_SEARCH_TEMPLATES:
+            candidate = site_url.rstrip("/") + template.format(
+                query=urllib.parse.quote_plus(query)
+            )
+            started = time.monotonic()
+            try:
+                response = fetcher.fetch(candidate)
+            except (FetchError, RobotsDenied) as exc:
+                attempts.append(
+                    {
+                        "url": candidate,
+                        "ok": False,
+                        "error": f"{exc.__class__.__name__}: {exc}",
+                        "ms": round((time.monotonic() - started) * 1000),
+                    }
+                )
+                continue
+            attempts.append(
+                {
+                    "url": candidate,
+                    "ok": True,
+                    "status": response.status,
+                    "ms": round((time.monotonic() - started) * 1000),
+                }
+            )
+            if response.status == 200 and response.text.strip():
+                page = response
+                search_url = response.final_url or candidate
+                break
+        if page is None:
+            detail = "; ".join(
+                f"{item['url']}: {item.get('error', 'empty response')}" for item in attempts
+            )
+            raise FetchError(f"no readable search page on {site_url} ({detail})")
+
+        warnings: list[str] = []
+        candidates = extract_links(
+            page.text, search_url, query=query, limit=config.max_links, same_site=True
+        )
+        # The search page links back to itself ("skip to content", the form's
+        # action); those are navigation, not results.
+        search_stem = search_url.split("?")[0].rstrip("/")
+        candidates = [
+            item
+            for item in candidates
+            if item.get("url", "").split("?")[0].rstrip("/") != search_stem
+        ]
+        matched = [item for item in candidates if item.get("score", 0) > 0]
+        if matched:
+            candidates = matched
+        elif candidates:
+            warnings.append(
+                "the site's search page carried no link whose text mentions the "
+                "query; its ranked links are returned unfiltered"
+            )
+        else:
+            warnings.append("the site's search page carried no followable links")
+
+        pages: list[dict[str, Any]] = []
+        for item in candidates[:pages_limit]:
+            try:
+                pages.append(fetch_page(item["url"], config, fetcher=fetcher))
+            except (RobotsDenied, FetchError, ExtractionError, RenderUnavailable) as exc:
+                pages.append(
+                    {
+                        "url": item["url"],
+                        "error": f"{exc.__class__.__name__}: {exc}",
+                        "warnings": [],
+                    }
+                )
+
+        payload: dict[str, Any] = {
+            "mode": "site-search",
+            "site": site_url,
+            "query": query,
+            "search_url": search_url,
+            "candidates": candidates,
+            "pages": pages,
+            "attempts": attempts,
+        }
+        if warnings:
+            payload["warnings"] = warnings
+        return payload
+    finally:
+        if own_fetcher:
+            fetcher.close()
+
+
+_FEED_LINK_TYPES = ("rss", "atom", "feed")
+
+
+def discover_feed(
+    url: str,
+    config: Optional[FetchConfig] = None,
+    fetcher: Optional[HttpFetcher] = None,
+) -> dict[str, Any]:
+    """Read a feed, discovering it from a page's ``<link rel=alternate>`` first.
+
+    A site's own feed needs no search engine and no rendering: it is the
+    cheapest way to follow a publication in a network where the engines fail.
+    """
+
+    from . import feeds
+
+    config = config or FetchConfig()
+    config.validate()
+    url = (url or "").strip()
+    if not url:
+        raise ValueError("url must not be empty")
+    own_fetcher = fetcher is None
+    fetcher = fetcher or HttpFetcher(config)
+
+    try:
+        response = fetcher.fetch(normalize_url(url))
+        if feeds.is_feed(response.text) or response.content_type in _FEED_CONTENT_TYPES:
+            feed_url = response.final_url
+            feed = feeds.extract(response.text, limit=max(1, config.num_results))
+        else:
+            soup = make_soup(response.text)
+            href = ""
+            for link in soup.find_all("link"):
+                rel = " ".join(str(value) for value in (link.get("rel") or [])).lower()
+                kind = str(link.get("type") or "").lower()
+                if "alternate" in rel and any(word in kind for word in _FEED_LINK_TYPES):
+                    href = absolute_url(_attr_text(link, "href"), response.final_url)
+                    if href:
+                        break
+            if not href:
+                raise ExtractionError(
+                    f"no RSS/Atom <link rel=alternate> found at {response.final_url}"
+                )
+            feed_response = fetcher.fetch(href)
+            if not feeds.is_feed(feed_response.text):
+                raise ExtractionError(
+                    f"{feed_response.final_url} is not an RSS/Atom feed"
+                )
+            feed = feeds.extract(feed_response.text, limit=max(1, config.num_results))
+            feed_url = feed_response.final_url
+        return {
+            "mode": "feed",
+            "feed_url": feed_url,
+            "format": feed["format"],
+            "count": feed["count"],
+            "items": feed.get("items") or [],
+            "markdown": feed["markdown"],
+            "metadata": feeds.to_metadata(feed, feed_url),
+        }
+    finally:
+        if own_fetcher:
+            fetcher.close()
+
+
+def probe_engines(
+    config: Optional[FetchConfig] = None,
+    fetcher: Optional[HttpFetcher] = None,
+    query: str = "web forager",
+) -> list[dict[str, Any]]:
+    """Ask every search engine once and report which ones answer right now.
+
+    A network can block one engine and allow another; the report turns "search
+    is broken" into "Bing answers, Sogou shows a verification page".
+    """
+
+    config = config or FetchConfig()
+    config.validate()
+    # A probe is a diagnostic, not a retry exercise: one attempt per engine
+    # keeps a blocking network from turning the report into a 60-second wait.
+    probe_config = dataclasses.replace(config, retries=0)
+    own_fetcher = fetcher is None
+    fetcher = fetcher or HttpFetcher(probe_config)
+    report: list[dict[str, Any]] = []
+    try:
+        for name in ("360", "bing", "sogou", "weixin", "duckduckgo"):
+            started = time.monotonic()
+            try:
+                items = _search_one(name, query, probe_config, 1, fetcher, pages=1)
+                entry: dict[str, Any] = {
+                    "engine": name,
+                    "ok": bool(items),
+                    "results": len(items),
+                    "ms": round((time.monotonic() - started) * 1000),
+                }
+                if not items:
+                    entry["error"] = "returned no results (empty page or a challenge page)"
+                report.append(entry)
+            except Exception as exc:
+                report.append(
+                    {
+                        "engine": name,
+                        "ok": False,
+                        "results": 0,
+                        "error": str(exc),
+                        "ms": round((time.monotonic() - started) * 1000),
+                    }
+                )
+    finally:
+        if own_fetcher:
+            fetcher.close()
+    return report
+
+
 def fetch_by_query(
     query: str,
     config: Optional[FetchConfig] = None,
@@ -2774,7 +3062,15 @@ def fetch_by_query(
     fetcher = fetcher or HttpFetcher(config)
 
     try:
-        results = search(query, config, engine=engine, limit=config.num_results, fetcher=fetcher)
+        engine_report: list[dict[str, Any]] = []
+        results = search(
+            query,
+            config,
+            engine=engine,
+            limit=config.num_results,
+            fetcher=fetcher,
+            report=engine_report,
+        )
         pages: list[dict[str, Any]] = []
         for result in results[: config.max_pages]:
             try:
@@ -2800,6 +3096,7 @@ def fetch_by_query(
             "engine": engine,
             "mode": "search",
             "search_results": results,
+            "engine_report": engine_report,
             "pages": pages,
         }
         warnings = search_warnings(query, results, engine=engine)
@@ -2837,7 +3134,29 @@ def summarize_record(record: dict[str, Any]) -> dict[str, Any]:
     return summary
 
 
-def doctor_report() -> dict[str, Any]:
+def redact_url(value: str) -> str:
+    """Drop credentials from a URL before it is printed.
+
+    A proxy URL often carries ``user:password@``; a report must show the host
+    and port without turning the password into plain text in a log.
+    """
+
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if "://" not in text:
+        text = "http://" + text
+    try:
+        parts = urllib.parse.urlsplit(text)
+    except ValueError:
+        return ""
+    host = parts.hostname or ""
+    port = f":{parts.port}" if parts.port else ""
+    scheme = parts.scheme or "http"
+    return f"{scheme}://{host}{port}" if host else ""
+
+
+def doctor_report(config: Optional[FetchConfig] = None) -> dict[str, Any]:
     """Report which capabilities this interpreter can serve, with install hints.
 
     An agent that gets a rendered-less page can run this and install what is
@@ -2895,6 +3214,26 @@ def doctor_report() -> dict[str, Any]:
             }
         )
 
+    proxy_value = ""
+    proxy_source = ""
+    if config is not None and config.proxy:
+        proxy_value = config.proxy
+        proxy_source = "config"
+    else:
+        for key in (
+            "HTTPS_PROXY",
+            "https_proxy",
+            "ALL_PROXY",
+            "all_proxy",
+            "HTTP_PROXY",
+            "http_proxy",
+        ):
+            value = os.environ.get(key, "").strip()
+            if value:
+                proxy_value = value
+                proxy_source = f"env:{key}"
+                break
+
     missing_required = [item["name"] for item in checks if item["required"] and not item["ok"]]
     return {
         "ok": not missing_required,
@@ -2903,6 +3242,11 @@ def doctor_report() -> dict[str, Any]:
         "version": __version__,
         "missing_required": missing_required,
         "checks": checks,
+        "proxy": {
+            "configured": bool(proxy_value),
+            "source": proxy_source,
+            "url": redact_url(proxy_value),
+        },
     }
 
 

@@ -62,6 +62,16 @@ def site(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     (root / "searchsogou.html").write_text(
         (FIXTURES / "search_sogou.html").read_text(encoding="utf-8"), encoding="utf-8"
     )
+    search_dir = root / "search"
+    search_dir.mkdir()
+    (search_dir / "index.html").write_text(
+        (FIXTURES / "site_search.html").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    feed_dir = root / "withfeed"
+    feed_dir.mkdir()
+    (feed_dir / "index.html").write_text(
+        (FIXTURES / "withfeed.html").read_text(encoding="utf-8"), encoding="utf-8"
+    )
     surf_dir = root / "surf"
     surf_dir.mkdir()
     for name, fixture in (

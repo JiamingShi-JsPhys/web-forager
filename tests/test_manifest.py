@@ -9,12 +9,14 @@ from pathlib import Path
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 DISCLAIMER = (
     "本插件仅供学习与信息收集使用。使用者需遵守目标网站的 Terms of Service 及相关版权法律。"
-    "禁止用于抓取个人隐私数据或进行恶意并发攻击。"
+    "禁止用于恶意并发攻击。严禁收集、聚合或推断特定自然人的个人信息，或将其用于人肉搜索、骚扰、跟踪等侵害他人隐私的活动；此类用法产生的法律责任由使用者自行承担。"
 )
 DISCLAIMER_EN = (
     "This plugin is for learning and information gathering only. Users must comply with the Terms of Service "
-    "of target websites and applicable copyright law. It must not be used to harvest personal "
-    "data or to conduct malicious concurrent attacks."
+    "of target websites and applicable copyright law. Malicious concurrent attacks are prohibited. Collecting, "
+    "aggregating or inferring the personal information of an identifiable individual — or using it for "
+    "doxxing, harassment, stalking or any other invasion of privacy — is prohibited; the user bears full "
+    "legal responsibility for such use."
 )
 ALLOWED_DEPENDENCIES = {"requests", "beautifulsoup4", "trafilatura", "playwright", "pypdf"}
 
@@ -22,9 +24,9 @@ ALLOWED_DEPENDENCIES = {"requests", "beautifulsoup4", "trafilatura", "playwright
 def test_manifest_is_complete() -> None:
     manifest = json.loads((PLUGIN_ROOT / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["name"] == "web-forager"
-    assert manifest["version"] == "1.1.0"
+    assert manifest["version"] == "1.2.0"
     assert manifest["license"] == "MIT"
-    assert set(manifest["actions"]) == {"fetch", "clean", "bili", "surf", "scholar", "map"}
+    assert set(manifest["actions"]) == {"fetch", "find", "feed", "clean", "bili", "surf", "scholar", "map"}
     assert (PLUGIN_ROOT / manifest["entrypoint"]).is_file()
     assert manifest["disclaimer"] == DISCLAIMER
 
@@ -59,6 +61,10 @@ def test_docs_use_no_emoji() -> None:
     for relative in (
         "README.md",
         "README_zh.md",
+        "docs/INSTALL_COMMANDS.md",
+        "docs/INSTALL_COMMANDS_zh.md",
+        "docs/ACKNOWLEDGEMENTS.md",
+        "docs/ACKNOWLEDGEMENTS_zh.md",
         "SKILL.md",
         "AGENTS.md",
         "CHANGELOG.md",
@@ -170,7 +176,7 @@ def test_multi_platform_manifests() -> None:
     for folder in (".claude-plugin", ".codex-plugin", ".codebuddy-plugin", ".dsh-plugin"):
         data = json.loads((PLUGIN_ROOT / folder / "plugin.json").read_text(encoding="utf-8"))
         assert data["name"] == "web-forager"
-        assert data["version"] == "1.1.0"
+        assert data["version"] == "1.2.0"
 
     for folder in (".claude-plugin", ".codex-plugin", ".codebuddy-plugin"):
         market = json.loads((PLUGIN_ROOT / folder / "marketplace.json").read_text(encoding="utf-8"))
@@ -195,6 +201,8 @@ def test_mcp_registration() -> None:
         "web_bilibili",
         "web_clean",
         "web_doctor",
+        "web_find",
+        "web_feed",
     }
 
 
@@ -216,7 +224,12 @@ def test_browser_mode_is_registered() -> None:
         "search-dig",
     }
     assert browser["backends"] == ["iab", "extension", "cdp"]
-    assert set(browser["mcp"]["tools"]) == {"browser_list", "browser_run", "browser_session"}
+    assert set(browser["mcp"]["tools"]) == {
+        "browser_list",
+        "browser_run",
+        "browser_session",
+        "browser_doctor",
+    }
 
     config = json.loads((PLUGIN_ROOT / ".mcp.json").read_text(encoding="utf-8"))
     assert set(config["mcpServers"]) == {"web-forager", "web-forager-browser"}
@@ -234,9 +247,10 @@ def test_browser_layer_drops_the_old_product_name() -> None:
 
 def test_docs_document_playwright_and_workspace() -> None:
     readme = (PLUGIN_ROOT / "README.md").read_text(encoding="utf-8")
+    install_docs = (PLUGIN_ROOT / "docs" / "INSTALL_COMMANDS.md").read_text(encoding="utf-8")
     skill = (PLUGIN_ROOT / "SKILL.md").read_text(encoding="utf-8")
     command = "pip install playwright && playwright install chromium"
-    assert command in readme
+    assert command in install_docs
     assert command in skill
     for text in (readme, skill):
         assert "--root" in text
@@ -254,8 +268,17 @@ def test_readme_covers_installation_and_workspace_output() -> None:
         assert "workflow" in text or "mermaid" in text
         assert "Chelate" not in text
         assert "https://github.com/JiamingShi-JsPhys/web-forager" in text
-    assert "### Method 1: install from the plugin marketplace by URL" in readme
-    assert "### 方法一：从插件市场用 URL 安装" in readme_zh
+    assert "## Method 1: install from the plugin marketplace by URL" in readme
+    assert "## Method 3: let your AI install it" in readme
+    assert "## 方法一：从插件市场用 URL 安装" in readme_zh
+    assert "## 方法三：让 AI 帮你装" in readme_zh
+    assert "[docs/INSTALL_COMMANDS.md](docs/INSTALL_COMMANDS.md)" in readme
+    assert "[docs/INSTALL_COMMANDS_zh.md](docs/INSTALL_COMMANDS_zh.md)" in readme_zh
+    install = (PLUGIN_ROOT / "docs" / "INSTALL_COMMANDS.md").read_text(encoding="utf-8")
+    install_zh = (PLUGIN_ROOT / "docs" / "INSTALL_COMMANDS_zh.md").read_text(encoding="utf-8")
+    assert "## Method 2: install with commands" in install
+    assert "## 方法二：用命令安装" in install_zh
+    assert "install.py" in install_zh
     assert "[English](README.md)" in readme_zh
     assert "[简体中文](README_zh.md)" in readme
 

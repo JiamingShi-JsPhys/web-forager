@@ -227,7 +227,7 @@ def test_dedupe_results_preserves_order() -> None:
 def test_disclaimer_text_is_exact() -> None:
     expected = (
         "本插件仅供学习与信息收集使用。使用者需遵守目标网站的 Terms of Service 及相关版权法律。"
-        "禁止用于抓取个人隐私数据或进行恶意并发攻击。"
+        "禁止用于恶意并发攻击。严禁收集、聚合或推断特定自然人的个人信息，或将其用于人肉搜索、骚扰、跟踪等侵害他人隐私的活动；此类用法产生的法律责任由使用者自行承担。"
     )
     assert engine.DISCLAIMER == expected
 
