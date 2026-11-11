@@ -46,7 +46,7 @@ import requests
 from bs4 import BeautifulSoup
 from bs4.element import NavigableString, Tag
 
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 
 DEFAULT_USER_AGENT = (
     f"WebForager/{__version__} (Information Gathering; "
@@ -1046,6 +1046,46 @@ def looks_garbled(text: str, threshold: float = 0.2) -> bool:
     return len(_MOJIBAKE_RE.findall(value)) / len(value) >= threshold
 
 
+_CJK_CHAR_RE = re.compile(r"[㐀-䶿一-鿿]")
+
+_CHARACTER_PAGE_MARKERS = (
+    "百科",
+    "字典",
+    "词典",
+    "拼音",
+    "笔顺",
+    "笔画",
+    "部首",
+    "读音",
+    "组词",
+    "汉字",
+    "汉语",
+    "释义",
+    "字义",
+    "意思",
+    "解释",
+)
+
+
+def looks_like_character_page(title: str, query: str) -> bool:
+    """True for a dictionary entry that shares only one character with the query.
+
+    Engines that split a Chinese phrase into characters rank the dictionary
+    page of its first character — ``反（汉语汉字）_百度百科`` for a query about
+    反逆向工程. That page shares a single character with the query and is never
+    the one the caller asked for, so it is dropped instead of padding the list.
+    """
+
+    query_chars = set(_CJK_CHAR_RE.findall(query or ""))
+    if len(query_chars) < 2:
+        return False
+    title_text = title or ""
+    title_chars = set(_CJK_CHAR_RE.findall(title_text))
+    if len(title_chars & query_chars) != 1:
+        return False
+    return any(marker in title_text for marker in _CHARACTER_PAGE_MARKERS)
+
+
 def prefers_chinese_engines(query: str) -> bool:
     """True when a query is mostly CJK text.
 
@@ -1096,14 +1136,14 @@ def search(
 
     fallback_engines: list[str] = []
     if engine == "auto":
-        # Bing tokenises quoted Chinese phrases poorly: it matches single
-        # characters and pushes dictionary pages above the precise hits. For a
-        # CJK query, ask 360, Sogou and 搜狗微信 first — the article index is the
+        # Bing tokenises Chinese phrases into single characters: a query about
+        # 反逆向工程 comes back as the dictionary page of 反. For a CJK query,
+        # ask 360, Sogou and 搜狗微信 and stop there — the article index is the
         # one channel that still carries a Chinese person's or institution's
-        # name — and keep Bing only as a fallback.
+        # name. Bing stays available through --engine bing.
         if prefers_chinese_engines(query):
             engines = ["360", "sogou", "weixin"]
-            fallback_engines = ["bing"]
+            fallback_engines = []
         else:
             engines = ["360", "bing"]
             # A Latin query answered with a handful of results (or none) is
@@ -1130,6 +1170,14 @@ def search(
                 items = _search_one(
                     name, query, config, limit, fetcher, pages=config.search_pages
                 )
+                # An engine that split a Chinese phrase into characters returns
+                # the dictionary page of the first one; drop it before it can
+                # pad the list or inflate the per-engine count.
+                items = [
+                    item
+                    for item in items
+                    if not looks_like_character_page(item.get("title", ""), query)
+                ]
                 groups.append((name, items))
                 entry.update(
                     ok=True,

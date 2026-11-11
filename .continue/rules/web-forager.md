@@ -1,9 +1,9 @@
 ---
-description: web-forager operating rules (v1.2.0)
+description: web-forager operating rules (v1.2.1)
 alwaysApply: true
 ---
 
-# web-forager — agent operating rules (v1.2.0)
+# web-forager — agent operating rules (v1.2.1)
 
 web-forager is a clean-room, robots-aware public-web intelligence layer. It
 searches, fetches, extracts and browses the open web to collect public information; it

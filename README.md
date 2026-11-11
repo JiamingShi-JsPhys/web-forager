@@ -1,8 +1,6 @@
 # web-forager
 
-> **A clean-room, robots-aware web information gathering toolkit for agents and analysts, with a CLI, two MCP servers and a Claude Code skill.**
->
-> It has two modes. **HTTP mode** searches 360 / Bing / Sogou / Sogou WeChat, reads HTML, PDF, DOCX, XLSX, EPUB, CSV and RSS/Atom, collects public pages from Bilibili through a dedicated adapter and from news sites, blogs and forums through the generic HTML pipeline, discovers sitemaps, splits long pages into context-sized chunks, caches responses politely, and can surf the open web link by link with resumable sessions. Optional scholarly lookups cover arXiv, Crossref, PubMed and DOI. **Browser mode** drives a real browser through a pluggable bridge for login-state pages, rendered content and Bilibili danmaku, following seven read-only playbooks that cover Bilibili, Zhihu and Xiaohongshu. Every HTTP page is checked against robots.txt and rate-limited per origin; browser mode reports whether robots.txt was consulted.
+> **A clean-room, robots-aware web information gathering toolkit for agents and analysts: one engine behind a CLI, two MCP servers and a Claude Code skill.**
 
 > ## Disclaimer (read this first)
 >
@@ -10,31 +8,28 @@
 
 **English** · [简体中文](README_zh.md)
 
-**Version:** 1.2.0 | **CLI actions:** 9 | **MCP tools:** 10 | **Browser playbooks:** 7
+**Version:** 1.2.1 | **CLI actions:** 9 | **MCP tools:** 10 | **Browser playbooks:** 7
 
 ---
 
-## Security & Open Source Statement
+## Scope and compliance
 
-> **Disclaimer**: This plugin is an auxiliary information-gathering tool developed to automate public web retrieval. It is not a peer-reviewed research project. The core engine is an original clean-room implementation: no source code is copied from Crawlee, Scrapy, Colly, Katana or any other crawling framework.
->
-> The tool **never bypasses a login, CAPTCHA, Cloudflare challenge or paywall**. It does not target personal data and does not run concurrent request floods; building a profile of an identifiable person with it is forbidden by the disclaimer above. `robots.txt` is checked before every target page, every request carries a contactable information-gathering User-Agent, and the default rate is one request per second per origin.
->
-> Fetched text comes from third-party sites; this plugin is not responsible for that content or for any consequence of using it.
+The core engine is an original clean-room implementation: no source is copied from Crawlee, Scrapy, Colly, Katana or any other crawling framework, and no GPL/AGPL dependency is used. The tool **never bypasses a login, CAPTCHA, Cloudflare challenge or paywall**, does not run concurrent request floods and does not target personal data. `robots.txt` (RFC 9309 subset) is checked before every target page, each request carries a contactable information-gathering User-Agent, and the default rate is one request per second per origin — search, sitemap and surf hops included. Fetched text comes from third-party sites; this plugin is not responsible for that content or for any consequence of using it.
 
 ---
 
-## Why web-forager?
+## Two modes, one record
 
-In the current agent ecosystem, tools solve one half of the problem: a search API returns links with no reading pipeline, or a scraper reads pages with no compliance layer. Neither supplies a stable contract between retrieval and the agent that consumes it. web-forager supplies both, in one engine. Typical uses include monitoring topics on Bilibili, Zhihu and Xiaohongshu, collecting articles and public discussions, and building a personal knowledge base.
+| | HTTP mode | Browser mode |
+|---|---|---|
+| Reads | what the server returns | what a person sees once scripts run and login state applies |
+| Entry points | `run.py`, `mcp_server.py` | `browser/run.js`, `browser/mcp_server.js` |
+| Needs | Python 3.10+ | Node.js 18+ and a bridge command |
+| Covers | search, HTML/PDF/Office/feeds, sitemaps, surf, Bilibili, scholarly APIs | seven read-only playbooks, rendered pages, danmaku |
 
-**One engine serves every source.** HTML, PDF, Office documents, ebooks, feeds, sitemaps, Bilibili and ordinary web pages all return the same four core fields: `metadata`, `markdown`, `tables` and `warnings`. A caller does not need a different code path per content type. Only Bilibili has a site-specific HTTP adapter; Zhihu and Xiaohongshu are covered by browser playbooks, and Weibo, Douban and other sites are read as ordinary pages with no site-specific code. `--core` folds both modes onto one documented record so a mixed result list stays uniform.
+Both modes agree on four core fields — `metadata`, `markdown`, `tables` and `warnings` — and extend them differently. `--core` on either CLI, or `core: true` on `browser_run`, folds a record onto one documented shape ([Records](#records)).
 
-**Compliance is built into the fetcher, not bolted on.** robots.txt (RFC 9309 subset), per-origin rate limiting, response-size caps, redirect limits and an explicit information-gathering User-Agent apply to every request, including search, sitemap and surf hops.
-
-**Agent-first interfaces degrade instead of crashing.** `--agent` yields a stable `{"ok":…}` envelope, `mcp_server.py` exposes ten MCP tools, `browser/mcp_server.js` exposes four more, and `--chunk-size` splits long pages by heading. Missing Playwright returns exit code 6, missing `pypdf` returns exit code 7, and a site without a sitemap returns an empty result with a note.
-
-**Two modes cover both halves of the web.** HTTP mode reads what the server returns: fast, auditable, robots-aware. Browser mode reads what a person actually sees after scripts run, login state applies and a player is mounted. It ships no browser of its own: it starts a bridge command and speaks a small JSON-RPC protocol to it. The bridge bundled under `browser/bridges/` is used automatically; `--bridge` or `WEB_FORAGER_BRIDGE` overrides it. When no bridge can be found, a live run exits 3 instead of pretending a page was read. Both modes share four core record fields and extend them differently; `--core` on either mode returns the shared shape (see [Records](#records)).
+Only Bilibili has a site-specific HTTP adapter. Zhihu, Xiaohongshu, Weibo and Douban are read as ordinary pages in HTTP mode; Zhihu and Xiaohongshu add browser playbooks, and Weibo and Douban have none.
 
 ---
 
@@ -46,6 +41,7 @@ Every request enters through the same `HttpFetcher`: robots policy, cache, retry
 flowchart LR
     IN["URL / keyword / DOI / file"] --> SEL{"choose action"}
     SEL -->|one page| F["fetch"]
+    SEL -->|one site| FD["find / feed"]
     SEL -->|local file| C["clean"]
     SEL -->|papers| S["scholar"]
     SEL -->|site inventory| M["map"]
@@ -53,6 +49,7 @@ flowchart LR
     SEL -->|Bilibili| B["bili"]
 
     F --> HTTP["robots.txt check<br/>per-origin rate limit"]
+    FD --> HTTP
     C --> EXT["HTML / PDF / DOCX / XLSX / EPUB / CSV"]
     S --> API["arXiv / Crossref / PubMed"]
     M --> SM["robots Sitemap / sitemap index / .xml.gz"]
@@ -63,7 +60,7 @@ flowchart LR
     MD --> OUT["JSON / --agent envelope / --root workspace / MCP"]
 ```
 
-`surf` only follows `<a href>` links that already exist in the page; it never constructs guessed URLs, submits forms or executes page JavaScript. `map` reads only published sitemaps, and the optional scholarly action calls documented APIs instead of scraping result pages.
+`surf` only follows `<a href>` links that already exist in the page; it never constructs guessed URLs, submits forms or executes page JavaScript. `map` reads only published sitemaps, and `scholar` calls documented APIs instead of scraping result pages.
 
 Browser mode is a second loop beside this one: the bridge supplies a page, `browser/run.js` reads a DOM snapshot, the session decides what is new, the playbook picks the next navigation step and a capture is written. Only one state-changing action runs per observation cycle, and write-like controls are denied by default.
 
@@ -111,72 +108,44 @@ Say what you want after the name; the skill picks the action and returns Markdow
 
 ### Commands
 
-Four commands put the common actions behind a single line:
-
 | Command | Does |
 |---|---|
 | `/web-forager:fetch` | Fetches one URL, or searches a keyword and reads the results |
 | `/web-forager:surf` | Searches or opens a seed URL, then follows ranked in-page links with a resumable session |
 | `/web-forager:scholar` | Queries arXiv, Crossref or PubMed, or resolves a DOI |
 | `/web-forager:map` | Discovers page URLs from robots.txt Sitemap lines, sitemap indexes and `.xml.gz` files |
+| `/web-forager:browse` | Runs a read-only browser playbook through the browser MCP server |
 
 ```text
 /web-forager:fetch https://example.org/article
 /web-forager:scholar 10.1038/nature14539
 ```
 
-Search defaults to `auto`. A mostly-CJK query is sent to 360, Sogou and
-Sogou WeChat; `--engine weixin` asks the WeChat article index directly, which is
-the one channel that normally carries a Chinese person's or institution's name.
+### When the engines are blocked
+
+Search defaults to `auto`. A mostly-CJK query goes to 360, Sogou and Sogou WeChat — the article index is the one channel that normally carries a Chinese person's or institution's name — and is not handed to Bing, which splits such a phrase into single characters and answers with dictionary pages. Those pages are dropped from any engine's results. An agent that wants Bing for a Chinese query can still ask with `--engine bing`.
+
+Two routes need no search engine at all:
+
+```bash
+python run.py --action find --site the-decoder.com --query "OpenAI watermark" --max-pages 3
+python run.py --action feed --url https://the-decoder.com/ --num-results 10
+```
+
+`find` tries the site's own search URLs (`/?s=`, `/search?q=` and two more), ranks the links by the query and fetches the best ones. `feed` discovers the site's RSS/Atom `<link rel=alternate>` and reads it. `doctor --probe` asks every engine once and reports which ones answer from this network; `doctor` also reports the proxy in use with its credentials removed. Requests honour `HTTPS_PROXY` / `ALL_PROXY`, and `--proxy URL` overrides them for one run.
 
 ### Browser mode
 
-The browser layer lives in `browser/` and needs Node.js 18 or newer. It is
-read-only by default: like, coin, favourite, follow, share, comment, danmaku and
-publish are denied unless `--allow-write` is passed after the user authorises
-that single action.
+The browser layer lives in `browser/` and needs Node.js 18 or newer. It is read-only by default: like, coin, favourite, follow, share, comment, danmaku and publish are denied unless `--allow-write` is passed after the user authorises that single action.
 
 ```bash
 node browser/run.js --list
 node browser/run.js --doctor
 node browser/run.js --playbook bili-feed --session bili-01 --max-items 8 --agent
 node browser/run.js --playbook bili-video --url "https://www.bilibili.com/video/BV1xx411c7mD"
-node browser/run.js --playbook bili-chain --url "https://www.bilibili.com/video/BV1xx411c7mD"
-node browser/run.js --playbook bili-danmaku --url "https://www.bilibili.com/video/BV1xx411c7mD"
 node browser/run.js --playbook zhihu-dig --query "reinforcement learning" --agent
-node browser/run.js --playbook xhs-dig --query "city walk guide" --agent
-node browser/run.js --playbook search-dig --query "reinforcement learning" --agent
 node browser/run.js --playbook bili-feed --dry-run
 ```
-
-The bundled bridge is picked up automatically once `playwright` and its
-Chromium binary are installed; `--bridge` or `WEB_FORAGER_BRIDGE` points at a
-bridge elsewhere:
-
-```bash
-npm install playwright && npx playwright install chromium
-node browser/run.js --playbook bili-feed --doctor   # says what is still missing
-```
-
-`WEB_FORAGER_BROWSER_HEADFUL=1` shows the window,
-`WEB_FORAGER_BROWSER_PROFILE=/path` reuses a persistent profile (this is what
-carries login state for the `extension` backend), and
-`WEB_FORAGER_BROWSER_CDP=http://127.0.0.1:9222` attaches to a browser you
-already control (`cdp`). Backend labels are bookkeeping: the bridge declares its
-real capabilities through an optional `describe` call, and the run payload
-records exactly what it declared. A bridge that does not implement `describe`
-is reported as `declared: false` with every capability false, so no playbook
-assumes a call the bridge cannot serve.
-
-`--strict-robots` fetches `robots.txt` before every navigation and stops with
-`robots_denied` (exit 3) on a disallowed path. Without it the record still says
-so: `compliance.robots_checked` is `false` and the note explains that the check
-was not made. A run that reaches the site but finds nothing readable — an empty
-feed, no result cards, a blank page — is reported as `degraded` (exit 8) with
-its records attached, instead of an `ok: true` envelope with `captured: 0`. An
-anti-bot or error interstitial stops the run with `blocked` (exit 9). Both are
-separate from `login_required` (exit 6), which means the site asked for
-credentials.
 
 | Playbook | Does | Requires |
 |---|---|---|
@@ -188,32 +157,18 @@ credentials.
 | `xhs-dig` | Xiaohongshu public notes, rank `/explore` links, capture one | `--query` |
 | `search-dig` | Bilibili search, rank cards, open the best unseen result | `--query` |
 
-`zhihu-dig` and `xhs-dig` return `login_required` (exit 6) when the platform
-shows a login wall; they never try to get around it.
+The bundled bridge is picked up automatically once `playwright` and its Chromium binary are installed; `--bridge` or `WEB_FORAGER_BRIDGE` points at a bridge elsewhere:
 
-#### Running it cheaply
+```bash
+npm install playwright && npx playwright install chromium
+node browser/run.js --playbook bili-feed --doctor   # says what is still missing
+```
 
-A browser run is the most expensive thing the plugin does, so its defaults are
-small and its cost knobs are worth knowing:
+`WEB_FORAGER_BROWSER_HEADFUL=1` shows the window, `WEB_FORAGER_BROWSER_PROFILE=/path` reuses a persistent profile (this is what carries login state for the `extension` backend), and `WEB_FORAGER_BROWSER_CDP=http://127.0.0.1:9222` attaches to a browser you already control (`cdp`). A bridge declares its real capabilities through an optional `describe` call; one that does not implement it is reported as `declared: false` with every capability false.
 
-- **Keep records on disk.** `--out result.json` (CLI) or
-  `out: "C:/path/result.json"` (MCP) writes the full record and returns a short
-  summary, so a ten-screen feed walk does not land in the agent's context.
-- **No screenshots by default.** Playbooks capture text, not pixels; one
-  screenshot costs roughly as much context as a page of prose. Ask for one only
-  when the layout itself is the question.
-- **Stay polite.** `--max-screens 5` and `--min-interval 3000` are the limits
-  worth keeping (the defaults are 3 screens and 1000 ms). A long walk is better
-  split into several runs that resume from `--session`.
-- **Danmaku is experimental.** `bili-danmaku` prefers the bridge's `observe`
-  call and falls back to DOM text with a `partial` warning; verify a small
-  sample before relying on it.
-- **Login state comes from a browser you already run.** Start Chrome with
-  `--remote-debugging-port=9222`, set `WEB_FORAGER_BROWSER_CDP` to that address
-  and pass `--backend cdp`; a persistent profile
-  (`WEB_FORAGER_BROWSER_PROFILE`) does the same across runs. The `extension`
-  backend is a slot for an extension bridge, which this repository does not
-  ship.
+`--strict-robots` fetches `robots.txt` before every navigation and stops with `robots_denied` (exit 3) on a disallowed path. Without it the record says so: `compliance.robots_checked` is `false`. A run that reaches the site but finds nothing readable is `degraded` (exit 8) with its records attached; an anti-bot or error interstitial is `blocked` (exit 9); a site that asks for credentials is `login_required` (exit 6).
+
+A browser run is the most expensive thing the plugin does, so its defaults are small: records go to disk with `--out result.json` (or `out:` in MCP), no screenshots are taken unless asked, `--max-screens 5` and `--min-interval 3000` keep a walk polite, and a long walk is better split into runs that resume from `--session`.
 
 ### MCP servers
 
@@ -232,16 +187,11 @@ small and its cost knobs are worth knowing:
 }
 ```
 
-HTTP tools: `web_fetch`, `web_search`, `web_surf`, `web_scholar`, `web_map`,
-`web_bilibili`, `web_clean`, `web_doctor`, `web_find`, `web_feed`. Browser tools:
-`browser_list`, `browser_run`, `browser_session`, `browser_doctor`. Test the protocol
-directly:
-Two switches keep a search cheap: `max_pages: 0` returns the result list with no
-page bodies (fetch one with `web_fetch` and a small `max_chars`), and
-`respect_robots: false` reads a page robots.txt disallows, only for resources you
-are authorised to read. A search whose results do not mention the query comes
-back with a `warnings` entry saying so.
+HTTP tools: `web_fetch`, `web_search`, `web_surf`, `web_scholar`, `web_map`, `web_bilibili`, `web_clean`, `web_doctor`, `web_find`, `web_feed`. Browser tools: `browser_list`, `browser_run`, `browser_session`, `browser_doctor`.
 
+Two switches keep a search cheap: `max_pages: 0` returns the result list with no page bodies (fetch one with `web_fetch` and a small `max_chars`), and `respect_robots: false` reads a page robots.txt disallows, only for resources you are authorised to read. `web_search` also returns `engine_report` — one entry per engine tried — and `warnings` when the results do not mention the query.
+
+Test the protocol directly:
 
 ```bash
 printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
@@ -251,6 +201,18 @@ printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
 ```bash
 printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
   '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | node browser/mcp_server.js
+```
+
+### CLI examples
+
+```bash
+python run.py --action fetch --url "https://www.bilibili.com/video/BV1xx411c7mD"
+python run.py --action fetch --url "https://www.zhihu.com/" --render auto
+python run.py --action fetch --query "city walk guide" --num-results 8 --max-pages 3
+python run.py --action surf --url "https://www.zhihu.com/" --depth 1 --max-pages 5 --session zhihu-01
+python run.py --action clean --input notes.pdf --format markdown
+python run.py --action map --url "https://example.org" --limit 500
+python run.py --action bili --mode feed --max-items 10
 ```
 
 ### Workspace output
@@ -267,20 +229,9 @@ Writes only:
 <WS>/_broadcast/web-forager_<timestamp>_<slug>.json
 ```
 
-`material/` and `results/` belong to the user and the orchestrator; web-forager never writes there.
-
-Browser captures follow the same discipline:
-
-```text
-<WS>/process/web-forager/browser/web-forager-browser_<timestamp>_<slug>.json
-<WS>/process/web-forager/browser/web-forager-browser_<timestamp>_<slug>.md
-<WS>/_broadcast/web-forager-browser_<timestamp>_<slug>.json
-```
+`material/` and `results/` belong to the user and the orchestrator; web-forager never writes there. Browser captures follow the same discipline under `<WS>/process/web-forager/browser/` and `<WS>/_broadcast/`.
 
 ### Records
-
-The two modes agree on the retrieval core and differ everywhere else. This is
-the actual comparison, not a claim that the records are identical:
 
 | Field | HTTP mode | Browser mode |
 |---|---|---|
@@ -289,8 +240,7 @@ the actual comparison, not a claim that the records are identical:
 | `status`, `content_type`, `document_kind`, `cached`, `rendered`, `fetched_at`, `chunks`, `links` | yes | no |
 | `schema_version`, `captured_at`, `playbook`, `backend`, `compliance`, `viewport_evidence`, `interaction_trace` | no | yes |
 
-`--core` on either CLI, or `core: true` on `browser_run`, returns the shared
-shape instead. Every record then has exactly these keys:
+`--core` returns the shared shape instead:
 
 ```json
 {
@@ -308,66 +258,11 @@ shape instead. Every record then has exactly these keys:
 }
 ```
 
-`mode` is `http` or `browser`, `source` names the producer, and `extra` keeps
-every field the two modes do not share so nothing is lost. The same fold is
-available as a library call: `engine.normalize_record()` in Python and
-`normalizeRecord()` in `browser/lib/record.js`.
+`mode` is `http` or `browser`, `source` names the producer, and `extra` keeps every field the two modes do not share. The same fold is available as a library call: `engine.normalize_record()` in Python and `normalizeRecord()` in `browser/lib/record.js`.
 
-### When you need the CLI
-
-The same operations run headlessly for scripts and CI:
-
-```bash
-python run.py --action fetch --url "https://www.bilibili.com/video/BV1xx411c7mD"
-python run.py --action fetch --url "https://www.zhihu.com/" --render auto
-python run.py --action fetch --url "https://www.xiaohongshu.com/explore" --render auto
-python run.py --action fetch --query "city walk guide" --num-results 8 --max-pages 3
-python run.py --action surf --url "https://www.zhihu.com/" --depth 1 --max-pages 5 --session zhihu-01
-python run.py --action clean --input notes.pdf --format markdown
-python run.py --action map --url "https://example.org" --limit 500
-python run.py --action bili --mode feed --max-items 10
-```
+`results` is an index, not a second copy of every page. For a search it carries `url`, `title`, `snippet`, `status`, `content_type`, `markdown_chars`, `tables` and any `warnings` or `error`; the Markdown body lives once, in `pages`, and a single `fetch` keeps it at the top level. `--full-results` (CLI) or `fullResults: true` (MCP) restores the old shape.
 
 ---
-
-### Response shape
-
-`results` is the list an agent loops over, and it is an index, not a second copy
-of every page. For a search it carries `url`, `title`, `snippet`, `status`,
-`content_type`, `markdown_chars`, `tables` and any `warnings` or `error`; the
-Markdown body lives once, in `pages`, and a single `fetch` keeps it at the top
-level. Pass `--full-results` (CLI) or `fullResults: true` (MCP) to get the old
-shape, where `results` repeats the full records.
-
-`--action doctor` reports every dependency with its version or the command that
-installs it, so an agent that received a thin page can fix the cause itself.
-
-
-### When HTTP mode is the right tool
-
-A general search CLI already covers `web_search` and `web_fetch`. What it does
-not cover is `web_scholar` (arXiv / Crossref / PubMed / DOI records) and
-`web_map` (page discovery from robots.txt and sitemaps); those two are the
-reason to reach for web-forager when a search tool would do.
-
-### When the engines are blocked
-
-Some networks answer a search with dictionary pages, a verification wall or a
-timeout. Two routes do not depend on an engine:
-
-```bash
-python run.py --action find --site the-decoder.com --query "OpenAI watermark" --max-pages 3
-python run.py --action feed --url https://the-decoder.com/ --num-results 10
-```
-
-`find` tries the site's own search URLs (`/?s=`, `/search?q=` and two more),
-ranks the links by the query and fetches the best ones. `feed` discovers the
-site's RSS/Atom `<link rel=alternate>` and reads it. `doctor --probe` asks every
-engine once and reports which ones answer from this network, so a dead engine
-becomes a fact instead of a mystery.
-
-Requests honour `HTTPS_PROXY` / `ALL_PROXY`; `--proxy URL` overrides them for one
-run. `doctor` reports the proxy in use with its credentials removed.
 
 ## Actions and exit codes
 
@@ -394,8 +289,7 @@ run. `doctor` reports the proxy in use with its credentials removed.
 | 7 | PDF requested but `pypdf` unavailable |
 | 130 | interrupted |
 
-Browser mode reuses those codes where the meaning carries over and adds two of
-its own:
+Browser mode reuses those codes where the meaning carries over and adds its own:
 
 | Exit code | Browser meaning |
 |---|---|
@@ -409,13 +303,13 @@ its own:
 | 9 | `blocked`: an anti-bot or error interstitial replaced the page |
 | 130 | interrupted |
 
-`--agent` keeps these exit codes and prints a `{"ok":false,"error":{"code","message","hint"}}` envelope on stdout.
+`--agent` keeps these exit codes and prints a `{"ok":false,"error":{"code","message","hint"}}` envelope on stdout. `doctor` reports every dependency with its version or the command that installs it; a missing Playwright returns exit code 6, and a missing `pypdf` returns exit code 7.
 
 ---
 
 ## Requirements
 
-Python 3.10+. Core runtime: `requests`, `beautifulsoup4`, `trafilatura`. Optional: `playwright` (JS rendering), `pypdf` (PDF). `defusedxml` is used when already installed but is never required — XML with an internal DTD subset or any ENTITY declaration is rejected regardless. Browser mode additionally needs Node.js 18+ and a bridge command; `browser/bridges/playwright-bridge.js` needs `playwright` installed with npm. No third-party code is vendored; every library stays under its own permissive licence. No GPL/AGPL dependency is used. The full per-capability matrix lives in [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md).
+Python 3.10+. Core runtime: `requests`, `beautifulsoup4`, `trafilatura`. Optional: `playwright` (JS rendering), `pypdf` (PDF). `defusedxml` is used when already installed but is never required — XML with an internal DTD subset or any ENTITY declaration is rejected regardless. Browser mode additionally needs Node.js 18+ and a bridge command; `browser/bridges/playwright-bridge.js` needs `playwright` installed with npm. No third-party code is vendored; the full per-capability matrix lives in [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md).
 
 ---
 
@@ -432,34 +326,34 @@ web-forager/
 ├── .clinerules/                  Cline rule file
 ├── .continue/rules/              Continue rule file
 ├── .roo/rules/                   Roo Code rule file
-├── .github/                      GitHub Copilot instruction file
+├── .github/                      Copilot instructions + Actions CI
 ├── AGENTS.md                     generic agent contract
 ├── install.py                    one-command rule-file installer
 ├── manifest.json                 plugin manifest
 ├── .mcp.json                     MCP stdio registration
 ├── package.json / index.js       npm + dsh packaging
 ├── cordis.patch.yml              dsh bundle patch
-├── run.py                        CLI: fetch / clean / bili / surf / scholar / map
-├── mcp_server.py                 MCP stdio server (8 HTTP tools)
+├── run.py                        CLI: nine actions
+├── mcp_server.py                 MCP stdio server (10 HTTP tools)
 ├── browser/                      browser mode (Node 18+)
 │   ├── run.js                    CLI: seven read-only playbooks
-│   ├── mcp_server.js             MCP stdio server (3 browser tools)
+│   ├── mcp_server.js             MCP stdio server (4 browser tools)
 │   ├── lib/                      bridge backend, session, record, safety, selectors, robots, snapshot
 │   ├── playbooks/                bili-* / zhihu-dig / xhs-dig / search-dig
 │   ├── bridges/                  optional Playwright reference bridge
-│   └── tests/                    fake backends, real-page snapshots, live smoke (55 tests)
+│   └── tests/                    fake backends, real-page snapshots, live smoke
 ├── SKILL.md                      Claude Code skill contract
 ├── commands/                     /fetch /surf /scholar /map /browse
-├── docs/DEPENDENCIES.md          per-capability dependency matrix
+├── docs/                         install commands, acknowledgements, dependency matrix
 ├── scripts/
-│   ├── engine.py                 robots, fetch, search, cache, chunks, Markdown, surf
+│   ├── engine.py                 robots, fetch, search, cache, chunks, Markdown, surf, find, feed
 │   ├── pdf.py                    PDF text (optional pypdf)
 │   ├── documents.py              DOCX / XLSX / EPUB / CSV
 │   ├── feeds.py                  RSS / Atom / RSS 1.0
 │   ├── scholar.py                arXiv / Crossref / PubMed / DOI
 │   ├── sitemap.py                sitemap discovery
 │   └── bilibili.py               Bilibili adapter
-├── tests/                        # offline HTTP fixtures (137 tests)
+├── tests/                        offline HTTP fixtures
 ├── requirements.txt
 ├── THIRD_PARTY_LICENSES.txt
 ├── CHANGELOG.md
@@ -476,9 +370,9 @@ python -m pytest tests -q
 npm run test:browser
 ```
 
-That is **137 Python tests** plus **55 browser tests**, all passing and fully offline. `conftest.py` starts a temporary local HTTP server serving robots.txt, articles, PDF/Office files, feeds, sitemaps, search-result pages and multi-hop surf pages. The Python suite covers robots denial, extraction, tables, documents, feeds, cache, search pagination, chunking, MCP, surf sessions, installer behaviour, host-rule and disclaimer checks, the shared `core-1` record, and every exit code. The browser suite uses a fake backend plus fake bridges that speak the wire protocol, so the CLI runs end to end without a browser; it also covers capability declaration, robots.txt matching, the `--strict-robots` round trip, and the degraded and blocked paths over snapshots recorded from live pages.
+That is **174 Python tests** plus **60 browser tests**, all passing and fully offline. `conftest.py` starts a temporary local HTTP server serving robots.txt, articles, PDF/Office files, feeds, sitemaps, search-result pages, a site-search page and multi-hop surf pages. The Python suite covers robots denial, extraction, tables, documents, feeds, cache, search pagination and routing, chunking, MCP, surf sessions, installer behaviour, host-rule and disclaimer checks, the shared `core-1` record, and every exit code. The browser suite uses a fake backend plus fake bridges that speak the wire protocol, so the CLI runs end to end without a browser; it covers capability declaration, robots.txt matching, the `--strict-robots` round trip, and the degraded and blocked paths over snapshots recorded from live pages.
 
-A live check is opt-in and never runs in CI:
+CI runs both suites on every push to `main`, on pull requests and on version tags: Python on Ubuntu 3.10/3.12 and Windows 3.12, browser mode on Node 20/22. A live check is opt-in and never runs in CI:
 
 ```bash
 WEB_FORAGER_LIVE=1 WEB_FORAGER_BRIDGE="node browser/bridges/playwright-bridge.js" npm run test:live
@@ -488,18 +382,14 @@ WEB_FORAGER_LIVE=1 WEB_FORAGER_BRIDGE="node browser/bridges/playwright-bridge.js
 
 ## Known limitations
 
-Honest edge cases — read before relying on any output:
-
-- **This is a low-frequency tool, not a crawler fleet**: requests are serial and rate-limited per origin (one per second by default), and `surf`, search and sitemap reads do not fan out concurrently. That is a design choice, and it makes web-forager unsuitable for large-scale harvesting.
+- **This is a low-frequency tool, not a crawler fleet**: requests are serial and rate-limited per origin (one per second by default), and `surf`, search and sitemap reads do not fan out concurrently. It is unsuitable for large-scale harvesting.
 - **PDF extraction reads the text layer only**: scanned PDFs need OCR, which this plugin does not do.
 - **Scholarly APIs return metadata and abstracts**: they do not return full papers; respect each platform's terms.
 - **`--render auto` is a heuristic**: short visible text plus SPA markers. Complex sites may need `--render always`, and `--wait-for` / `--scroll` only work when Playwright is installed.
-- **Search depends on public result pages**: availability varies by network, and every parser (`parse_360_html`, `parse_bing_html`, `parse_sogou_html`, `parse_weixin_html`, `parse_ddg_html`) encodes an assumption about the result-page markup. Each has an offline fixture under `tests/fixtures/`; a redesign breaks the fixture test rather than silently returning nothing. **Baidu is not supported**: its result page is heavily guarded and no parser is shipped. Sogou may show a human-verification page; a mostly-CJK `auto` query tries 360, Sogou and Sogou WeChat and falls back to Bing only if all three fail, and `--engine all` can fail partially.
-- **Only Bilibili has a site-specific HTTP adapter**: Zhihu, Xiaohongshu, Weibo and Douban are read as ordinary HTML pages in HTTP mode, which is enough for public article pages and not enough for logged-in feeds. Zhihu and Xiaohongshu have browser playbooks; Weibo and Douban have none.
-- **Bilibili HTTP mode reads public pages only**: no login, comments, subtitles or private lists.
-- **Browser mode needs a working bridge**: the bundled Playwright bridge is found automatically, but `playwright` and its Chromium binary are installed separately. `--doctor` names whichever is missing; with no bridge at all a live run exits 3.
-- **Browser mode is read-only by default**: write-like controls are denied unless `--allow-write` is passed after explicit authorisation.
-- **Browser selectors are heuristics**: every pattern about a third-party page lives in `browser/lib/selectors.js` and is regression-tested against snapshots derived from live pages (`browser/tests/fixtures/snapshots/`, recorded 2026-11-07). That catches drift after the fact, not before it. `npm run test:live` re-checks the live sites when you set `WEB_FORAGER_LIVE=1` and a bridge.
+- **Search depends on public result pages**: availability varies by network, and every parser (`parse_360_html`, `parse_bing_html`, `parse_sogou_html`, `parse_weixin_html`, `parse_ddg_html`) encodes an assumption about the result-page markup. Each has an offline fixture under `tests/fixtures/`; a redesign breaks the fixture test rather than silently returning nothing. **Baidu is not supported**: its result page is heavily guarded and no parser is shipped. Sogou may show a human-verification page, and `--engine all` can fail partially. A Chinese query never falls back to Bing, and dictionary pages that match one character of a query are dropped.
+- **Only Bilibili has a site-specific HTTP adapter**: the other sites named above are read as ordinary pages, which is enough for public article pages and not enough for logged-in feeds.
+- **Browser mode needs a working bridge**: `playwright` and its Chromium binary are installed separately, `--doctor` names whichever is missing, and with no bridge at all a live run exits 3.
+- **Browser selectors are heuristics**: every pattern about a third-party page lives in `browser/lib/selectors.js` and is regression-tested against snapshots derived from live pages (`browser/tests/fixtures/snapshots/`, recorded 2026-11-07). That catches drift after the fact, not before it; `npm run test:live` re-checks the live sites when you set `WEB_FORAGER_LIVE=1` and a bridge.
 - **Danmaku is experimental**: bridge `observe("danmaku", ms)` is preferred; DOM text is a fallback that assumes one visible `mm:ss text` layout, and the record says so in its warnings. Canvas-rendered text still needs OCR.
 - **Login walls are not bypassed**: `zhihu-dig` and `xhs-dig` stop with `login_required`; reuse a logged-in profile through your bridge.
 - **`surf` follows ordinary links only**: it does not click buttons, execute JavaScript or handle login walls.

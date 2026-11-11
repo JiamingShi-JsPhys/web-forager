@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.2.1 — 2026-11-11
+
+A search hygiene release: a Chinese query no longer collects dictionary pages for one of its characters, and the README pair was rewritten around what the tool does now.
+
+### Fixed
+
+- **A mostly-CJK query is no longer handed to Bing as a fallback.** Bing splits a Chinese phrase into single characters, so a search about 反逆向工程 came back with the dictionary page of 反 once the Chinese engines answered thinly. `auto` now stops after 360, Sogou and 搜狗微信; `--engine bing` still asks Bing explicitly.
+- **Dictionary pages that match one character of the query are dropped**, whatever engine returned them. `looks_like_character_page()` recognises a title that shares exactly one character with a longer query and carries a dictionary marker (百科, 拼音, 笔顺, 部首, 组词…), so a result list is not padded with them and `engine_report` counts only usable hits.
+
+### Documentation
+
+- **Both READMEs were rewritten.** The duplicated mode paragraphs and the second disclaimer block are gone; scope and compliance sit in one section, the two modes face each other in one table, and the CJK search routing, `find`/`feed`, CI and current tool/test counts are stated once. README text now matches the 10 HTTP tools, 4 browser tools and 9 CLI actions that actually ship.
+
+### Tests
+
+- **174 Python tests** and **60 browser tests**, all offline. New coverage: a CJK query never calls Bing, a character page is dropped from an engine's results, and `looks_like_character_page()` leaves a single-character query and a full-phrase hit alone.
+
 ## 1.2.0 — 2026-11-09
 
 Search is no longer the only way in. A site's own search page and its feed are

@@ -17,7 +17,7 @@ function read(...parts) {
 test("the plugin manifest declares the browser block", () => {
   const manifest = JSON.parse(read(PLUGIN_ROOT, "manifest.json"));
   assert.equal(manifest.name, "web-forager");
-  assert.equal(manifest.version, "1.2.0");
+  assert.equal(manifest.version, "1.2.1");
   assert.equal(manifest.browser.entrypoint, "browser/run.js");
   assert.equal(manifest.browser.runtime, "node >= 18");
   assert.equal(manifest.browser.mcp.entrypoint, "browser/mcp_server.js");
@@ -29,7 +29,7 @@ test("the plugin manifest declares the browser block", () => {
 test("the browser package carries the plugin version and name", () => {
   const pkg = JSON.parse(read(BROWSER_ROOT, "package.json"));
   assert.equal(pkg.name, "web-forager-browser");
-  assert.equal(pkg.version, "1.2.0");
+  assert.equal(pkg.version, "1.2.1");
   assert.equal(pkg.engines.node, ">=18");
 });
 

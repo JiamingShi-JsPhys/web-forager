@@ -348,16 +348,49 @@ def test_auto_keeps_bing_for_latin_queries(monkeypatch) -> None:
     assert calls == ["360", "bing"]
 
 
-def test_chinese_query_still_falls_back_to_bing(monkeypatch) -> None:
+def test_chinese_query_never_falls_back_to_bing(monkeypatch) -> None:
     calls = _fake_engine(monkeypatch, failing={"360", "sogou", "weixin"})
     config = engine.FetchConfig(delay=0.0)
     fetcher = engine.HttpFetcher(config)
     try:
-        results = engine.search("杭州西湖一日游攻略", config, fetcher=fetcher)
+        with pytest.raises(engine.FetchError):
+            engine.search("杭州西湖一日游攻略", config, fetcher=fetcher)
     finally:
         fetcher.close()
-    assert calls == ["360", "sogou", "weixin", "bing"]
-    assert results and results[0]["source"] == "bing"
+    assert calls == ["360", "sogou", "weixin"]
+
+
+def test_character_pages_are_dropped(monkeypatch) -> None:
+    def fake_search_one(name, query, config, limit, fetcher, pages=1):
+        return [
+            {
+                "title": "反（汉语汉字）_百度百科",
+                "url": "https://baike.example/character",
+                "snippet": "",
+                "source": name,
+            },
+            {
+                "title": "反逆向工程的方法 - CSDN",
+                "url": "https://blog.example/anti-reverse",
+                "snippet": "",
+                "source": name,
+            },
+        ]
+
+    monkeypatch.setattr(engine, "_search_one", fake_search_one)
+    config = engine.FetchConfig(delay=0.0)
+    fetcher = engine.HttpFetcher(config)
+    try:
+        results = engine.search("反逆向工程 方法", config, engine="bing", fetcher=fetcher)
+    finally:
+        fetcher.close()
+    assert [item["title"] for item in results] == ["反逆向工程的方法 - CSDN"]
+
+
+def test_character_page_detection_needs_a_longer_query() -> None:
+    assert engine.looks_like_character_page("反（汉语汉字）_百度百科", "反逆向工程 方法")
+    assert not engine.looks_like_character_page("反（汉语汉字）_百度百科", "反")
+    assert not engine.looks_like_character_page("反逆向工程的方法 - CSDN", "反逆向工程 方法")
 
 
 def test_thin_auto_results_ask_one_more_engine(monkeypatch) -> None:
