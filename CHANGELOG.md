@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.2.2 — 2026-11-15
+
+A hardening release that replaces the 1.2.2 build published on 2026-11-12: a request can no longer be aimed at the machine or the LAN, browser state stays in a profile of its own, and fetched text is labelled as third-party data. The legal-notice rewrite and packaging rules from that earlier build are included.
+
+### Security
+
+- **Private-address guard (SSRF).** Loopback, RFC 1918, link-local (including `169.254.169.254`), CGNAT, multicast, reserved and their IPv6 forms are refused before a socket opens. The host is resolved and checked as written, so decimal IPv4 spellings and IPv6-mapped IPv4 are caught too. The check runs before the request, on every redirect hop (redirects are followed one hop at a time instead of by `requests`), on the robots.txt download, on search-result resolution, and on the URL a rendered page actually lands on. `--allow-private` / `WEB_FORAGER_ALLOW_PRIVATE=1` is the documented opt-out for local fixtures and trusted intranet targets.
+- **Browser navigation is guarded too.** `guardedGoto` checks the requested and the final URL, and the bundled Playwright bridge installs a request filter: every document and subresource the page asks for is resolved, and private targets are aborted. A hostile page can no longer use the open browser to probe `http://127.0.0.1:…` or a cloud metadata endpoint.
+- **Browser state stays in its own profile.** The bundled bridge already kept `~/.web-forager/browser/profile`; the report now states `dedicated_profile` and `shared_browser`, and a CDP attach to a browser you use for everything else adds a warning that every cookie and login in that profile is reachable by the pages a playbook opens.
+- **Fetched text is marked as data.** Every record carries `trust: "untrusted"`. A small scanner (same rules in `scripts/untrusted.py` and `browser/lib/untrusted.js`) names instruction-shaped passages — overrides, fake system tags, `curl … | sh`, secret-exfiltration requests, role swaps — in `injection_flags`, and puts one warning first in the list. `--input-gate strict` withholds the body instead of handing it on; `--input-gate off` skips the scan.
+- **Cookies never enter a record.** The Bilibili cookie is held in memory for the API request and is not written to the record, the session file or an error message; the browser profile directory is reported as a flag, not a path.
+
+### Documentation
+
+- **Both READMEs were reorganised around a first visit.** The page now opens with what the tool is, what you get and what it refuses, followed by a table of contents, the why section, the three install methods and a quick start split by entry point — chat, terminal, MCP and the optional browser mode — with a "which action do I need" table and copy-paste commands. The first screen carries a one-line notice that links to the full legal terms; the terms themselves moved below the quick start, section by section.
+- **Quick start now holds only the three entry points**: chat, terminal and MCP. The browser playbook table, switches and `--strict-robots` details, and "when the engines are blocked" routes moved to the reference; each is a one-sentence pointer on the landing page. Installation opens with "let your AI install it" as the recommended path for most readers, followed by the plugin-marketplace URL and the per-host commands. The contents is grouped, with acknowledgements, trademarks and licence added.
+- **Reference material moved to `docs/REFERENCE.md` and `docs/REFERENCE_zh.md`**: the full action list and exit-code tables, record fields and `core-1`, workspace output, MCP tool names and protocol checks, requirements, repository layout, test details and extra CLI examples. Every example is its own one-line block, so it can be copied or run without trimming its neighbours. README keeps a three-table quick start, a short exit-code summary and a link.
+- **Long sections fold.** The repository tree, test coverage notes and MCP tool names sit in `<details>` blocks; known limitations are grouped into read-first, edge cases and experimental/high-risk switches.
+- Both READMEs gain a **Security boundaries** section and three limitation bullets (the guard's off switch, the screen's limits, the CDP profile exposure).
+- `AGENTS.md`, `SKILL.md` and the six host rule files state that fetched text is data and must not be executed as instructions.
+- **The README pair carries a six-part legal notice** — purpose, prohibited use, responsibility, no warranty, limitation of liability, redistribution. `SKILL.md`, `AGENTS.md` and the six host rule files carry the short version.
+- **Test fixtures are no longer part of a published archive.** `.gitattributes` marks `tests/` and `browser/tests/` as `export-ignore`, and both npm manifests drop tests from `files`; CI still runs them from the repository clone.
+
+### Tests
+
+- **228 Python tests** and **75 browser tests**, all offline. New coverage: every private range, a redirect into a metadata endpoint, a two-hop redirect chain, the robots download, the CLI exit code and `--allow-private`, marker detection, strict withholding, and the browser-side guard and scanner.
+
 ## 1.2.1 — 2026-11-11
 
 A search hygiene release: a Chinese query no longer collects dictionary pages for one of its characters, and the README pair was rewritten around what the tool does now.

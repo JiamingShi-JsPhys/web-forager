@@ -1,6 +1,7 @@
 "use strict";
 
 const { ActorError } = require("./errors");
+const { assertPublicUrl } = require("./netguard");
 
 const WRITE_PATTERNS = [
   /点赞/,
@@ -64,6 +65,11 @@ async function guardedClick(ctx, node, options = {}) {
 }
 
 async function guardedGoto(ctx, url) {
+  // undefined falls back to WEB_FORAGER_ALLOW_PRIVATE inside the guard.
+  const allowPrivate = ctx.options ? ctx.options.allowPrivate : undefined;
+  // A page can redirect where it likes; both the requested and the final URL
+  // must be public, so a public seed cannot bounce the run into the LAN.
+  await assertPublicUrl(url, { allowPrivate });
   if (ctx.options && ctx.options.strictRobots) {
     const { checkRobots } = require("./robots");
     const decision = await checkRobots(url);
@@ -86,7 +92,10 @@ async function guardedGoto(ctx, url) {
   }
   await rateLimit(ctx);
   ctx.trace.push({ action: "goto", url, at: new Date().toISOString() });
-  return ctx.backend.goto(url);
+  const result = await ctx.backend.goto(url);
+  const finalUrl = result && result.url;
+  if (finalUrl) await assertPublicUrl(finalUrl, { allowPrivate });
+  return result;
 }
 
 async function guardedScroll(ctx, dy) {

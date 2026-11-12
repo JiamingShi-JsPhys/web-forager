@@ -1,8 +1,8 @@
 # Install commands
 
-Every per-host command, the `install.py` flags and the optional dependencies. Methods 1 and 3 are short enough to stay in the README: [web-forager](../README.md) · [简体中文](INSTALL_COMMANDS_zh.md)
+Every per-host command, the `install.py` flags and the optional dependencies. Methods 1 and 2 are short enough to stay in the README: [web-forager](../README.md) · [简体中文](INSTALL_COMMANDS_zh.md)
 
-## Method 2: install with commands
+## Method 3: install with commands
 
 **Claude Code** — from your shell (v2.1.292+), marketplace and install in one step:
 
@@ -13,7 +13,7 @@ claude plugin install web-forager --marketplace https://github.com/JiamingShi-Js
 **Claude Code** — from inside a session (v2.1.275+), add the marketplace from the URL first, pinned to the release tag:
 
 ```text
-/plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git#v1.2.1
+/plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git#v1.2.2
 ```
 
 Then install the entry it lists:
@@ -25,7 +25,7 @@ Then install the entry it lists:
 **Codex** — register the URL as a Git marketplace; `--ref` pins the release tag, and an SSH URL or a local path works in place of the HTTPS one:
 
 ```bash
-codex plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git --ref v1.2.1
+codex plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git --ref v1.2.2
 ```
 
 **Codex** — install the plugin from that marketplace:
@@ -37,13 +37,13 @@ codex plugin add web-forager@web-forager-marketplace
 **dsh (DeepSeek Harness)** — installs from the same repository URL straight into a profile:
 
 ```bash
-dsh plugin --profile web add github:JiamingShi-JsPhys/web-forager#v1.2.1
+dsh plugin --profile web add github:JiamingShi-JsPhys/web-forager#v1.2.2
 ```
 
 **CodeBuddy** — add the URL as a Git marketplace:
 
 ```text
-/plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git#v1.2.1
+/plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git#v1.2.2
 ```
 
 Then install the entry it lists:

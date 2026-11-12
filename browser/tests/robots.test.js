@@ -9,6 +9,9 @@ const { spawn } = require("node:child_process");
 
 const { parseRobots, robotsAllows, checkRobots, clearCache } = require("../lib/robots");
 
+// The fixture sites listen on 127.0.0.1; the SSRF guard would refuse them.
+process.env.WEB_FORAGER_ALLOW_PRIVATE = "1";
+
 const ROOT = path.join(__dirname, "..");
 const ENTRY = path.join(ROOT, "run.js");
 const FIXTURE = path.join(__dirname, "fixtures", "fake-bridge.js");

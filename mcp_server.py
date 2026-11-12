@@ -39,6 +39,11 @@ _TOOLS: list[dict[str, Any]] = [
                     "type": "boolean",
                     "description": "Check robots.txt before fetching (default true). Set false only for resources you are authorised to read.",
                 },
+                "input_gate": {
+                    "type": "string",
+                    "enum": ["off", "mark", "strict"],
+                    "description": "Treat fetched text as untrusted: mark instruction-shaped content (default), withhold the body (strict), or skip the scan (off).",
+                },
                 "fullResults": {
                     "type": "boolean",
                     "description": "Repeat every page record inside results as well as pages (1.0.1 behaviour; doubles the response).",
@@ -65,6 +70,11 @@ _TOOLS: list[dict[str, Any]] = [
                     "type": "boolean",
                     "description": "Check robots.txt before fetching a result page (default true). Set false only for resources you are authorised to read.",
                 },
+                "input_gate": {
+                    "type": "string",
+                    "enum": ["off", "mark", "strict"],
+                    "description": "Treat fetched text as untrusted: mark instruction-shaped content (default), withhold the body (strict), or skip the scan (off).",
+                },
                 "fullResults": {
                     "type": "boolean",
                     "description": "Repeat every page record inside results as well as pages (1.0.1 behaviour; doubles the response).",
@@ -89,6 +99,11 @@ _TOOLS: list[dict[str, Any]] = [
                 "respect_robots": {
                     "type": "boolean",
                     "description": "Check robots.txt before fetching a page (default true). Set false only for resources you are authorised to read.",
+                },
+                "input_gate": {
+                    "type": "string",
+                    "enum": ["off", "mark", "strict"],
+                    "description": "Treat fetched text as untrusted: mark instruction-shaped content (default), withhold the body (strict), or skip the scan (off).",
                 },
                 "fullResults": {
                     "type": "boolean",
@@ -166,6 +181,11 @@ _TOOLS: list[dict[str, Any]] = [
                     "type": "boolean",
                     "description": "Check robots.txt before fetching (default true).",
                 },
+                "input_gate": {
+                    "type": "string",
+                    "enum": ["off", "mark", "strict"],
+                    "description": "Treat fetched text as untrusted: mark instruction-shaped content (default), withhold the body (strict), or skip the scan (off).",
+                },
                 "proxy": {"type": "string"},
                 "fullResults": {
                     "type": "boolean",
@@ -233,6 +253,7 @@ def _config(arguments: dict[str, Any]) -> engine.FetchConfig:
         # --ignore-robots.
         respect_robots=bool(arguments.get("respect_robots", True)),
         proxy=str(arguments.get("proxy", "")),
+        input_gate=str(arguments.get("input_gate", "mark")),
         verbose=False,
     )
     config.validate()
@@ -502,10 +523,15 @@ def handle_request(request: dict[str, Any]) -> Optional[dict[str, Any]]:
                 {"content": [{"type": "text", "text": text}], "isError": False},
             )
         except Exception as exc:  # tool failures are data, not protocol failures
+            code = exc.__class__.__name__
+            if code == "ProhibitedQuery":
+                code = "prohibited_query"
+            elif code == "UnsafeAddress":
+                code = "unsafe_address"
             text = json.dumps(
                 {
                     "ok": False,
-                    "error": {"code": exc.__class__.__name__, "message": str(exc)},
+                    "error": {"code": code, "message": str(exc)},
                 },
                 ensure_ascii=False,
             )

@@ -53,6 +53,11 @@ const TOOLS = [
           type: "boolean",
           description: "Consult robots.txt before every navigation and refuse disallowed pages (default false).",
         },
+        inputGate: {
+          type: "string",
+          enum: ["off", "mark", "strict"],
+          description: "How to treat instruction-shaped page text: mark (default), withhold the body (strict), or skip the scan (off).",
+        },
         core: {
           type: "boolean",
           description: "Report records in the shared core-1 schema instead of the full browser record.",
@@ -105,6 +110,7 @@ function runPlaybook(args) {
       "out",
       "bridge",
       "backend",
+      "inputGate",
     ];
     for (const key of textual) {
       if (args[key] === undefined || args[key] === null || args[key] === "") continue;

@@ -507,15 +507,15 @@ def test_search_stays_quiet_when_results_match(monkeypatch) -> None:
         monkeypatch,
         [
             {
-                "title": "张三 — 示例大学",
-                "url": "https://example.org/shi-jiaming",
-                "snippet": "张三，示例大学研究员",
+                "title": "Visible watermarking — an overview",
+                "url": "https://example.org/watermark",
+                "snippet": "A survey of visible watermarking",
                 "source": "bing",
             }
         ],
     )
     config = engine.FetchConfig(delay=0.0, max_pages=1)
-    payload = engine.fetch_by_query("张三", config, engine="bing")
+    payload = engine.fetch_by_query("watermark", config, engine="bing")
     assert "warnings" not in payload
 
 

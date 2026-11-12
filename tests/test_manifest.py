@@ -24,7 +24,7 @@ ALLOWED_DEPENDENCIES = {"requests", "beautifulsoup4", "trafilatura", "playwright
 def test_manifest_is_complete() -> None:
     manifest = json.loads((PLUGIN_ROOT / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["name"] == "web-forager"
-    assert manifest["version"] == "1.2.1"
+    assert manifest["version"] == "1.2.2"
     assert manifest["license"] == "MIT"
     assert set(manifest["actions"]) == {"fetch", "find", "feed", "clean", "bili", "surf", "scholar", "map"}
     assert (PLUGIN_ROOT / manifest["entrypoint"]).is_file()
@@ -41,18 +41,31 @@ def test_readme_and_skill_show_the_disclaimer() -> None:
     readme = (PLUGIN_ROOT / "README.md").read_text(encoding="utf-8")
     readme_zh = (PLUGIN_ROOT / "README_zh.md").read_text(encoding="utf-8")
     skill = (PLUGIN_ROOT / "SKILL.md").read_text(encoding="utf-8")
-    # The English README is English-only, so it carries the translated notice.
-    assert DISCLAIMER_EN in readme
-    assert readme.index(DISCLAIMER_EN) < 1200
-    for text in (readme_zh, skill):
-        assert DISCLAIMER in text
-        assert text.index(DISCLAIMER) < 1200
+    # The READMEs lead with a one-line notice and link to the detailed terms;
+    # the full text lives in the legal section rather than the first screen.
+    notice_en = "For learning and information gathering only."
+    notice_zh = "本插件仅供学习与研究用途。"
+    assert notice_en in readme
+    assert readme.index(notice_en) < 1200
+    assert "[full legal notice](#full-legal-notice)" in readme
+    assert notice_zh in readme_zh
+    assert readme_zh.index(notice_zh) < 1200
+    assert "[完整法律声明](#完整法律声明)" in readme_zh
+    # The detailed terms are still present, not deleted.
+    assert "### What it must not be used for" in readme
+    assert "### 禁止用途" in readme_zh
+    # SKILL.md is loaded into a chat context, so it keeps the full block up top.
+    assert DISCLAIMER in skill
+    assert skill.index(DISCLAIMER) < 1200
 
 
 def test_english_readme_has_no_chinese_text() -> None:
     readme = (PLUGIN_ROOT / "README.md").read_text(encoding="utf-8")
+    reference = (PLUGIN_ROOT / "docs" / "REFERENCE.md").read_text(encoding="utf-8")
     # The language switcher keeps the target language's own name.
     body = readme.replace("[\u7b80\u4f53\u4e2d\u6587](README_zh.md)", "")
+    assert not re.search("[\u4e00-\u9fff]", body)
+    body = reference.replace("[\u7b80\u4f53\u4e2d\u6587](REFERENCE_zh.md)", "")
     assert not re.search("[\u4e00-\u9fff]", body)
 
 
@@ -65,6 +78,8 @@ def test_docs_use_no_emoji() -> None:
         "docs/INSTALL_COMMANDS_zh.md",
         "docs/ACKNOWLEDGEMENTS.md",
         "docs/ACKNOWLEDGEMENTS_zh.md",
+        "docs/REFERENCE.md",
+        "docs/REFERENCE_zh.md",
         "SKILL.md",
         "AGENTS.md",
         "CHANGELOG.md",
@@ -149,6 +164,8 @@ def test_required_files_exist() -> None:
         "commands/scholar.md",
         "commands/map.md",
         "docs/DEPENDENCIES.md",
+        "docs/REFERENCE.md",
+        "docs/REFERENCE_zh.md",
         ".cursor/rules/web-forager.mdc",
         ".windsurf/rules/web-forager.md",
         ".clinerules/web-forager.md",
@@ -176,7 +193,7 @@ def test_multi_platform_manifests() -> None:
     for folder in (".claude-plugin", ".codex-plugin", ".codebuddy-plugin", ".dsh-plugin"):
         data = json.loads((PLUGIN_ROOT / folder / "plugin.json").read_text(encoding="utf-8"))
         assert data["name"] == "web-forager"
-        assert data["version"] == "1.2.1"
+        assert data["version"] == "1.2.2"
 
     for folder in (".claude-plugin", ".codex-plugin", ".codebuddy-plugin"):
         market = json.loads((PLUGIN_ROOT / folder / "marketplace.json").read_text(encoding="utf-8"))
@@ -260,24 +277,30 @@ def test_docs_document_playwright_and_workspace() -> None:
 def test_readme_covers_installation_and_workspace_output() -> None:
     readme = (PLUGIN_ROOT / "README.md").read_text(encoding="utf-8")
     readme_zh = (PLUGIN_ROOT / "README_zh.md").read_text(encoding="utf-8")
-    for text in (readme, readme_zh):
-        assert "install.py" in text
-        assert "AGENTS.md" in text
-        assert "process/web-forager" in text
-        assert "_broadcast" in text
-        assert "workflow" in text or "mermaid" in text
-        assert "Chelate" not in text
+    reference = (PLUGIN_ROOT / "docs" / "REFERENCE.md").read_text(encoding="utf-8")
+    reference_zh = (PLUGIN_ROOT / "docs" / "REFERENCE_zh.md").read_text(encoding="utf-8")
+    for text, ref in ((readme, reference), (readme_zh, reference_zh)):
+        combined = text + "\n" + ref
+        assert "install.py" in combined
+        assert "AGENTS.md" in combined
+        assert "process/web-forager" in combined
+        assert "_broadcast" in combined
+        assert "workflow" in combined or "mermaid" in combined
+        assert "Chelate" not in combined
         assert "https://github.com/JiamingShi-JsPhys/web-forager" in text
-    assert "## Method 1: install from the plugin marketplace by URL" in readme
-    assert "## Method 3: let your AI install it" in readme
-    assert "## 方法一：从插件市场用 URL 安装" in readme_zh
-    assert "## 方法三：让 AI 帮你装" in readme_zh
+        assert "docs/REFERENCE" in text
+    assert "## Method 1: let your AI install it" in readme
+    assert "## Method 2: install from the plugin marketplace by URL" in readme
+    assert "## Method 3: install with commands" in readme
+    assert "## 方法一：让 AI 帮你装" in readme_zh
+    assert "## 方法二：从插件市场用 URL 安装" in readme_zh
+    assert "## 方法三：用命令安装" in readme_zh
     assert "[docs/INSTALL_COMMANDS.md](docs/INSTALL_COMMANDS.md)" in readme
     assert "[docs/INSTALL_COMMANDS_zh.md](docs/INSTALL_COMMANDS_zh.md)" in readme_zh
     install = (PLUGIN_ROOT / "docs" / "INSTALL_COMMANDS.md").read_text(encoding="utf-8")
     install_zh = (PLUGIN_ROOT / "docs" / "INSTALL_COMMANDS_zh.md").read_text(encoding="utf-8")
-    assert "## Method 2: install with commands" in install
-    assert "## 方法二：用命令安装" in install_zh
+    assert "## Method 3: install with commands" in install
+    assert "## 方法三：用命令安装" in install_zh
     assert "install.py" in install_zh
     assert "[English](README.md)" in readme_zh
     assert "[简体中文](README_zh.md)" in readme

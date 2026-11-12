@@ -702,6 +702,13 @@ def search(
     query = (query or "").strip()
     if not query:
         raise ValueError("query must not be empty")
+    reason = engine.doxxing_reason(query)
+    if reason:
+        raise engine.ProhibitedQuery(
+            f"refused: {reason}. web-forager does not collect or assemble "
+            "profiles of identifiable people; search for a topic, a paper "
+            "title or an organisation instead."
+        )
 
     own_fetcher = fetcher is None
     fetcher = fetcher or engine.HttpFetcher(config)

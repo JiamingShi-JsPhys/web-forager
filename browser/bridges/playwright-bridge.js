@@ -30,6 +30,11 @@ try {
   process.exit(3);
 }
 
+// Every request the page makes — the document itself and each subresource —
+// is checked against the private-address guard. A hostile page therefore
+// cannot use the browser to read http://127.0.0.1:... or a metadata endpoint.
+const { isPublicRequestUrl } = require("../lib/netguard");
+
 const SNAPSHOT_SCRIPT = () => {
   const nodes = [];
   let seq = 0;
@@ -86,11 +91,29 @@ function profilePath() {
   return path.resolve(configured || DEFAULT_PROFILE);
 }
 
+async function installNetGuard(active) {
+  try {
+    await active.route("**/*", async (route) => {
+      const url = route.request().url();
+      if (/^https?:/i.test(url) && !(await isPublicRequestUrl(url))) {
+        return route.abort("blockedbyclient");
+      }
+      return route.continue();
+    });
+  } catch (error) {
+    process.stderr.write(
+      `playwright-bridge: could not install the private-address guard (${error.message}); ` +
+        "navigation checks in the caller still apply.\n",
+    );
+  }
+}
+
 async function start() {
   if (context) return;
   if (process.env.WEB_FORAGER_BROWSER_CDP) {
     browser = await playwright.chromium.connectOverCDP(process.env.WEB_FORAGER_BROWSER_CDP);
     context = browser.contexts()[0] || (await browser.newContext());
+    await installNetGuard(context);
     return;
   }
   const headless = process.env.WEB_FORAGER_BROWSER_HEADFUL !== "1";
@@ -101,10 +124,12 @@ async function start() {
   if (profile) {
     fs.mkdirSync(profile, { recursive: true });
     context = await playwright.chromium.launchPersistentContext(profile, { headless, ...LAUNCH_OPTIONS });
+    await installNetGuard(context);
     return;
   }
   browser = await playwright.chromium.launch({ headless, ...LAUNCH_OPTIONS });
   context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  await installNetGuard(context);
 }
 
 const SETTLE_MS = 500;

@@ -1,6 +1,6 @@
 {
   "name": "web-forager-browser",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Browser mode of web-forager: drive a real browser through a bridge, follow read-only playbooks, and record what it sees in the web-forager workspace shape.",
   "main": "run.js",
   "bin": {
@@ -21,8 +21,7 @@
     "mcp_server.js",
     "lib/",
     "playbooks/",
-    "bridges/",
-    "tests/"
+    "bridges/"
   ],
   "keywords": [
     "browser",

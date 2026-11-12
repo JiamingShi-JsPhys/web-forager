@@ -13,6 +13,8 @@ const http = require("node:http");
 const https = require("node:https");
 const { URL } = require("node:url");
 
+const { isPublicRequestUrl } = require("./netguard");
+
 const USER_AGENT = "WebForager-Browser (Information Gathering; +https://github.com/JiamingShi-JsPhys/web-forager)";
 const MAX_BYTES = 512_000;
 const TIMEOUT_MS = 8000;
@@ -101,15 +103,14 @@ function robotsAllows(policy, url) {
   return winner === null ? true : winner.allow;
 }
 
-function fetchText(url, redirects = 0) {
+async function fetchText(url, redirects = 0) {
+  const parsed = new URL(url);
+  if (!(await isPublicRequestUrl(url))) {
+    // A robots.txt redirect can point anywhere; refuse the private hop instead
+    // of fetching it. checkRobots() treats this as unreachable and denies.
+    throw new Error(`refusing private robots.txt host: ${parsed.hostname}`);
+  }
   return new Promise((resolve, reject) => {
-    let parsed;
-    try {
-      parsed = new URL(url);
-    } catch (error) {
-      reject(error);
-      return;
-    }
     const client = parsed.protocol === "http:" ? http : https;
     const request = client.get(
       parsed,

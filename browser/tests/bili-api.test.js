@@ -79,6 +79,35 @@ test("searchVideos stays out of the way when disabled", async () => {
   }
 });
 
+test("the buvid3 cookie is sent but never appears in the result", () => {
+  let apiCookie = "";
+  return withFetch(
+    async (url, options) => {
+      const headers = (options && options.headers) || {};
+      if (String(url).includes("api.bilibili.com")) {
+        apiCookie = headers.cookie || "";
+        return {
+          ok: true,
+          json: async () => ({
+            code: 0,
+            data: { result: [{ title: "t", bvid: "BV1", arcurl: "https://b/x" }] },
+          }),
+        };
+      }
+      return {
+        ok: true,
+        headers: { getSetCookie: () => ["buvid3=SECRETVALUE; Path=/; HttpOnly"] },
+        json: async () => ({}),
+      };
+    },
+    async () => {
+      const items = await searchVideos("q", 1);
+      assert.match(apiCookie, /buvid3=SECRETVALUE/);
+      assert.doesNotMatch(JSON.stringify(items), /SECRETVALUE/);
+    },
+  );
+});
+
 test("stripTags removes markup and entities", () => {
   assert.equal(stripTags('<em class="keyword">张</em>三'), "张三");
   assert.equal(stripTags("a &amp; b"), "a & b");

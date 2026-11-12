@@ -12,9 +12,11 @@ const { makeContext } = require("./lib/context");
 const { ActorError, asActorError } = require("./lib/errors");
 const { resolveBridge } = require("./lib/bridge");
 const { doctorReport } = require("./lib/doctor");
+const { scan: scanUntrusted, warning: untrustedWarning, withheld } = require("./lib/untrusted");
 
 const EXIT = {
   argument: 2,
+  unsafe_url: 2,
   backend_unavailable: 3,
   robots_denied: 3,
   navigation: 4,
@@ -32,6 +34,7 @@ const BOOLEAN_FLAGS = new Set([
   "agent",
   "allow-write",
   "strict-robots",
+  "allow-private",
   "core",
   "help",
   "version",
@@ -102,6 +105,8 @@ function printHelp() {
       "  --backend NAME       iab, extension or cdp (default: iab)",
       "  --allow-write        permit write-like clicks (default: deny)",
       "  --strict-robots      consult robots.txt before every navigation (default: off)",
+      "  --allow-private      DANGEROUS: allow loopback/private targets (default: refuse)",
+      "  --input-gate MODE    off | mark (default) | strict: mark instruction-shaped page text, or withhold the body",
       "  --core               report records in the shared core schema (core-1)",
       "  --dry-run            print the plan without opening a browser",
       "  --agent              emit a {\"ok\":...} JSON envelope",
@@ -172,6 +177,16 @@ async function main() {
   }
 
   if (!options.playbook) return fail(new ActorError("argument", "--playbook is required"), options.agent);
+  // The bridge is a child process and reads the same switch for its request
+  // filter, so an explicit --allow-private must reach it as an environment
+  // variable too.
+  if (options.allowPrivate) process.env.WEB_FORAGER_ALLOW_PRIVATE = "1";
+  if (!["off", "mark", "strict"].includes(options.inputGate || "mark")) {
+    return fail(
+      new ActorError("argument", `--input-gate must be off, mark or strict (got ${options.inputGate})`),
+      options.agent,
+    );
+  }
 
   let playbook;
   try {
@@ -239,6 +254,23 @@ async function main() {
   const summary = result && result.summary !== undefined ? result.summary : result;
   const status = (summary && summary.status) || "ok";
 
+  const gate = options.inputGate || "mark";
+  for (const record of ctx.records) {
+    if (gate === "off") continue;
+    const flags = scanUntrusted(`${record.markdown || ""}\n${(record.metadata || {}).title || ""}`);
+    record.trust = "untrusted";
+    record.injection_flags = flags;
+    if (flags.length) {
+      if (gate === "strict") {
+        record.markdown = "";
+        record.trust = "rejected";
+        record.warnings.unshift(withheld(flags));
+      } else {
+        record.warnings.unshift(untrustedWarning(flags));
+      }
+    }
+  }
+
   const outputs = writeRecords(ctx.records, options.root);
   const payload = {
     playbook: playbook.name,
@@ -247,6 +279,10 @@ async function main() {
       strict_robots: ctx.compliance.strict_robots,
       robots_checked: ctx.compliance.checks.length > 0,
       checks: ctx.compliance.checks,
+      // The bundled bridge keeps its own profile under ~/.web-forager. A CDP
+      // attach reuses whatever browser the user pointed at, with all its logins.
+      dedicated_profile: !process.env.WEB_FORAGER_BROWSER_CDP,
+      shared_browser: Boolean(process.env.WEB_FORAGER_BROWSER_CDP),
     },
     session: {
       name: session.name,
@@ -256,7 +292,17 @@ async function main() {
     },
     summary,
     backend: { name: backend.name, capabilities },
-    warnings: [...ctx.warnings, ...((result && result.warnings) || [])],
+    warnings: [
+      ...ctx.warnings,
+      ...((result && result.warnings) || []),
+      ...(process.env.WEB_FORAGER_BROWSER_CDP
+        ? [
+            "this run attached to an existing browser over CDP: every cookie and " +
+              "login in that profile is reachable by the pages it opens. Use the " +
+              "dedicated profile for anything you would not hand to a stranger.",
+          ]
+        : []),
+    ],
     records: options.core ? ctx.records.map(normalizeRecord) : ctx.records,
     outputs,
   };

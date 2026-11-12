@@ -166,6 +166,23 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="DANGEROUS: skip robots.txt checks (only for resources you are authorised to access)",
     )
+    parser.add_argument(
+        "--allow-private",
+        action="store_true",
+        help=(
+            "DANGEROUS: allow loopback, private and link-local targets. "
+            "For local fixtures and trusted intranet tools only"
+        ),
+    )
+    parser.add_argument(
+        "--input-gate",
+        choices=["off", "mark", "strict"],
+        default="mark",
+        help=(
+            "treat fetched text as untrusted: mark instruction-shaped content "
+            "(default), withhold the body on a hard hit (strict), or skip the scan"
+        ),
+    )
     parser.add_argument("--user-agent", default=engine.DEFAULT_USER_AGENT, help="explicit User-Agent string")
     parser.add_argument(
         "--probe",
@@ -234,6 +251,8 @@ def build_config(args: argparse.Namespace) -> engine.FetchConfig:
         chunk_size=max(0, args.chunk_size),
         wait_for=args.wait_for,
         scroll=max(0, args.scroll),
+        allow_private=bool(args.allow_private) or engine._allow_private_from_env(),
+        input_gate=args.input_gate,
     )
     config.validate()
     return config
@@ -718,6 +737,14 @@ def main(argv: list[str] | None = None) -> int:
             document = cmd_bili(args, config)
         else:
             document = cmd_doctor(args, config)
+    except engine.ProhibitedQuery as exc:
+        return _fail(
+            args,
+            "prohibited_query",
+            str(exc),
+            "search a topic, a paper title or an organisation; person profiling is out of scope",
+            10,
+        )
     except engine.RobotsDenied as exc:
         return _fail(
             args,
@@ -725,6 +752,14 @@ def main(argv: list[str] | None = None) -> int:
             f"robots.txt denied this request: {exc}",
             "use --ignore-robots only for resources you are authorised to access",
             3,
+        )
+    except engine.UnsafeAddress as exc:
+        return _fail(
+            args,
+            "unsafe_address",
+            str(exc),
+            "loopback, private, link-local and cloud-metadata addresses are refused",
+            2,
         )
     except engine.InvalidURLError as exc:
         return _fail(args, "invalid_url", f"invalid URL: {exc}", "pass an absolute http(s) URL", 2)

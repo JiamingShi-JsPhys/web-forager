@@ -23,7 +23,7 @@ function run(args) {
 test("--version prints the package version", () => {
   const result = run(["--version"]);
   assert.equal(result.status, 0);
-  assert.match(result.stdout, /web-forager-browser 1\.2\.1/);
+  assert.match(result.stdout, /web-forager-browser 1\.2\.2/);
 });
 
 test("--list --agent lists the seven playbooks", () => {

@@ -29,15 +29,17 @@ from __future__ import annotations
 import base64
 import dataclasses
 import html as html_lib
+import ipaddress
 import json
 import os
 import re
+import socket
 import sys
 import threading
 import time
 import urllib.parse
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Optional
@@ -46,7 +48,9 @@ import requests
 from bs4 import BeautifulSoup
 from bs4.element import NavigableString, Tag
 
-__version__ = "1.2.1"
+from . import untrusted
+
+__version__ = "1.2.2"
 
 DEFAULT_USER_AGENT = (
     f"WebForager/{__version__} (Information Gathering; "
@@ -95,6 +99,10 @@ class PdfExtractionError(WebForagerError):
     """The PDF could not be parsed or contained no text."""
 
 
+class ProhibitedQuery(WebForagerError):
+    """The query asks to identify a private person and is refused."""
+
+
 def parse_xml(text: str) -> ET.Element:
     """Parse untrusted XML without XXE or entity-expansion risk.
 
@@ -133,6 +141,17 @@ def parse_xml(text: str) -> ET.Element:
 # ---------------------------------------------------------------------------
 
 
+def _allow_private_from_env() -> bool:
+    """Local fixtures and trusted intranet tools set WEB_FORAGER_ALLOW_PRIVATE=1."""
+
+    return os.environ.get("WEB_FORAGER_ALLOW_PRIVATE", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
 @dataclass
 class FetchConfig:
     """Runtime knobs for one CLI invocation."""
@@ -163,10 +182,16 @@ class FetchConfig:
     wait_for: str = ""
     scroll: int = 0
     proxy: str = ""               # http(s) proxy for every request; "" uses the environment
+    # Refuse private/loopback/link-local targets unless the caller opts in.
+    allow_private: bool = field(default_factory=_allow_private_from_env)
+    # off | mark | strict: what to do with instruction-shaped page text.
+    input_gate: str = "mark"
 
     def validate(self) -> None:
         if self.render not in ("auto", "never", "always"):
             raise ValueError("render must be auto, never or always")
+        if self.input_gate not in ("off", "mark", "strict"):
+            raise ValueError("input_gate must be off, mark or strict")
         if self.follow not in ("same-site", "all", "none"):
             raise ValueError("follow must be same-site, all or none")
         if self.search_engine not in SEARCH_ENGINES:
@@ -287,6 +312,147 @@ def absolute_url(href: Optional[str], base: Optional[str]) -> str:
         return normalize_url(text, base=base)
     except InvalidURLError:
         return ""
+
+
+# ---------------------------------------------------------------------------
+# Private-address guard (SSRF)
+# ---------------------------------------------------------------------------
+
+# Loopback, RFC 1918, link-local, CGNAT, documentation, multicast and reserved
+# ranges.  ``ipaddress`` flags cover most of them; the explicit list keeps the
+# same answer on every supported Python version.
+_BLOCKED_NETWORKS = tuple(
+    ipaddress.ip_network(cidr)
+    for cidr in (
+        "0.0.0.0/8",
+        "10.0.0.0/8",
+        "100.64.0.0/10",
+        "127.0.0.0/8",
+        "169.254.0.0/16",
+        "172.16.0.0/12",
+        "192.0.0.0/24",
+        "192.0.2.0/24",
+        "192.168.0.0/16",
+        "198.18.0.0/15",
+        "198.51.100.0/24",
+        "203.0.113.0/24",
+        "240.0.0.0/4",
+        "255.255.255.255/32",
+        "::1/128",
+        "64:ff9b::/96",
+        "100::/64",
+        "2001:db8::/32",
+        "fc00::/7",
+        "fe80::/10",
+        "ff00::/8",
+    )
+)
+
+
+class UnsafeAddress(InvalidURLError):
+    """The URL points at a loopback, private or link-local address."""
+
+
+def _blocked_ip(ip: Any) -> bool:
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    if any(ip in network for network in _BLOCKED_NETWORKS if network.version == ip.version):
+        return True
+    return bool(
+        ip.is_loopback
+        or ip.is_link_local
+        or ip.is_private
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+    )
+
+
+def _host_is_local_name(host: str) -> bool:
+    host = host.rstrip(".").lower()
+    return (
+        host == "localhost"
+        or host.endswith(".localhost")
+        or host.endswith(".local")
+        or host.endswith(".internal")
+        or host == "metadata.google.internal"
+    )
+
+
+def assert_public_url(url: str, *, allow_private: bool = False) -> None:
+    """Refuse URLs that resolve to this machine, the LAN or a metadata service.
+
+    The host as written and every address DNS returns are checked, so decimal
+    IPv4 spellings and IPv6-mapped IPv4 are caught as well.  The guard runs
+    before each request and on every redirect hop.  A host that does not resolve
+    is left to the HTTP client, which fails on its own.
+
+    ``allow_private`` exists for local fixtures and trusted intranet tools; it
+    is off by default and the CLI exposes it as ``--allow-private``.
+    """
+
+    if allow_private:
+        return
+    parts = urllib.parse.urlsplit(url)
+    host = parts.hostname or ""
+    if not host:
+        raise UnsafeAddress(f"URL has no host: {url}")
+    if _host_is_local_name(host):
+        raise UnsafeAddress(f"refusing a local host: {host}")
+    try:
+        port = parts.port or (443 if parts.scheme.lower() == "https" else 80)
+    except ValueError as exc:
+        raise UnsafeAddress(f"invalid port in {url}") from exc
+
+    try:
+        literal = ipaddress.ip_address(host.strip("[]").split("%", 1)[0])
+    except ValueError:
+        literal = None
+    if literal is not None:
+        if _blocked_ip(literal):
+            raise UnsafeAddress(f"refusing a private address: {host}")
+        return
+
+    try:
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except OSError:
+        return  # unresolvable: the HTTP client reports the failure
+    for info in infos:
+        address = str(info[4][0])
+        try:
+            ip = ipaddress.ip_address(address.split("%", 1)[0])
+        except ValueError:
+            continue
+        if _blocked_ip(ip):
+            raise UnsafeAddress(f"refusing {host}: it resolves to {address}")
+
+
+def _guarded_request(
+    getter: Any,
+    url: str,
+    *,
+    allow_private: bool = False,
+    max_redirects: int = 5,
+    **kwargs: Any,
+) -> Any:
+    """GET ``url`` and follow redirects one hop at a time, checking each target.
+
+    ``requests`` follows redirects internally, which would let a public URL
+    bounce the client to ``127.0.0.1`` or a metadata endpoint without the guard
+    ever seeing it.  Every hop is therefore resolved and checked here.
+    """
+
+    current = url
+    for _ in range(max_redirects + 1):
+        assert_public_url(current, allow_private=allow_private)
+        response = getter(current, allow_redirects=False, **kwargs)
+        location = response.headers.get("Location") if response.headers else None
+        if response.status_code in (301, 302, 303, 307, 308) and location:
+            current = normalize_url(urllib.parse.urljoin(current, location))
+            response.close()
+            continue
+        return response
+    raise FetchError(f"too many redirects for {url}")
 
 
 # ---------------------------------------------------------------------------
@@ -500,11 +666,12 @@ class RobotsCache:
             "Accept": "text/plain,*/*;q=0.5",
         }
         try:
-            response = requests.get(
+            response = _guarded_request(
+                requests.get,
                 robots_url,
+                allow_private=self.config.allow_private,
                 headers=headers,
                 timeout=min(max(self.config.timeout, 1.0), 10.0),
-                allow_redirects=True,
             )
         except requests.RequestException as exc:
             # RFC 9309 §2.3.1: an unreachable robots.txt is treated as a
@@ -721,6 +888,7 @@ class HttpFetcher:
         """
 
         url = normalize_url(url)
+        assert_public_url(url, allow_private=self.config.allow_private)
         policy: Optional[RobotsPolicy] = None
         if check_robots:
             policy = self.assert_allowed(url)
@@ -735,10 +903,12 @@ class HttpFetcher:
         last_error: Optional[Exception] = None
         for attempt in range(self.config.retries + 1):
             try:
-                response = self.session.get(
+                response = _guarded_request(
+                    self.session.get,
                     url,
+                    allow_private=self.config.allow_private,
+                    max_redirects=self.session.max_redirects,
                     timeout=self.config.timeout,
-                    allow_redirects=True,
                     stream=True,
                 )
             except requests.RequestException as exc:
@@ -806,6 +976,17 @@ class HttpFetcher:
     def _write_cache(self, url: str, response: HttpResponse) -> None:
         if not self.config.cache or response.status != 200:
             return
+        lowered = {str(key).lower() for key in response.headers}
+        if lowered & {"set-cookie", "set-cookie2"}:
+            # A response that plants a session cookie is not a neutral copy of a
+            # public page; keep it (and the credential) out of the on-disk cache.
+            log("cache skipped: response sets cookies", self.config)
+            return
+        safe_headers = {
+            key: value
+            for key, value in response.headers.items()
+            if str(key).lower() not in ("authorization", "proxy-authorization")
+        }
         meta_path, body_path = self._cache_paths(url)
         try:
             meta_path.parent.mkdir(parents=True, exist_ok=True)
@@ -816,7 +997,7 @@ class HttpFetcher:
                         "url": url,
                         "final_url": response.final_url,
                         "status": response.status,
-                        "headers": response.headers,
+                        "headers": safe_headers,
                         "content_type": response.content_type,
                         "encoding": response.encoding,
                     },
@@ -902,8 +1083,13 @@ class HttpFetcher:
         self.limiter.wait(url)
         response: Optional[requests.Response] = None
         try:
-            response = self.session.get(
-                url, timeout=self.config.timeout, allow_redirects=True, stream=True
+            response = _guarded_request(
+                self.session.get,
+                url,
+                allow_private=self.config.allow_private,
+                max_redirects=self.session.max_redirects,
+                timeout=self.config.timeout,
+                stream=True,
             )
             final = response.url
             text = ""
@@ -918,7 +1104,7 @@ class HttpFetcher:
             if is_js_redirect:
                 final = decode_js_redirect(text) or final
             return final
-        except requests.RequestException:
+        except (requests.RequestException, InvalidURLError):
             return url
         finally:
             if response is not None:
@@ -1086,6 +1272,101 @@ def looks_like_character_page(title: str, query: str) -> bool:
     return any(marker in title_text for marker in _CHARACTER_PAGE_MARKERS)
 
 
+_DOXXING_PHRASES = (
+    "人肉搜索",
+    "人肉",
+    "开盒",
+    "社工库",
+    "查户籍",
+    "户籍信息",
+    "开房记录",
+    "查开房",
+    "家庭住址",
+    "具体住址",
+    "亲属关系",
+    "查身份证",
+    "查手机号",
+    "查住址",
+    "查家人",
+    "查个人资料",
+    "定位某人",
+)
+_DOXXING_LATIN = ("doxxing", "doxx", "doxed", "doxing", "dox ")
+_SENSITIVE_ATTRIBUTES = (
+    "手机号",
+    "手机号码",
+    "电话号码",
+    "住址",
+    "身份证",
+    "照片",
+    "微信号",
+    "学号",
+    "工号",
+    "行踪",
+    "轨迹",
+)
+_PERSON_REFERENCES = (
+    "这个人",
+    "此人",
+    "该人",
+    "某人",
+    "对方",
+    "本人",
+    "他的",
+    "她的",
+    "家人",
+    "家属",
+)
+_LATIN_PERSON_RE = re.compile(r"\b[A-Z][a-z]+(?: [A-Z][a-z]+){1,2}\b")
+_LATIN_SENSITIVE = ("phone number", "home address", "email address", "social security", "id number")
+_PERSON_NAME_RE = re.compile(r"^[一-鿿]{2,3}$")
+_LATIN_NAME_RE = re.compile(r"^[A-Z][a-z]+(?: [A-Z][a-z]+){1,2}$")
+
+
+def doxxing_reason(query: str) -> str:
+    """Return a reason when a query asks to identify a private person, else "".
+
+    The check refuses *intent*, not names: an explicit doxxing phrase, a
+    sensitive attribute asked about a specific person, or a Latin personal name
+    combined with a contact field. A plain name on its own is not refused,
+    because it cannot be told apart from a paper author or a public figure; it
+    draws a warning instead.
+    """
+
+    text = (query or "").lower()
+    for phrase in _DOXXING_PHRASES:
+        if phrase in text:
+            return (
+                "the query asks for information about a person in a way that "
+                "amounts to doxxing or profiling"
+            )
+    for word in _DOXXING_LATIN:
+        if word in text:
+            return "the query names doxxing as its purpose"
+    if any(word in text for word in _LATIN_SENSITIVE) and _LATIN_PERSON_RE.search(query or ""):
+        return "the query asks for contact details about a named individual"
+    if any(word in text for word in _SENSITIVE_ATTRIBUTES):
+        if any(ref in text for ref in _PERSON_REFERENCES):
+            return "the query asks for a sensitive attribute of a specific person"
+        # A short Chinese token beside an attribute word is a name: 王五 身份证.
+        for token in re.split(r"[\s,，;；|/]+", query or ""):
+            if not _PERSON_NAME_RE.match(token):
+                continue
+            if any(token in word or word in token for word in _SENSITIVE_ATTRIBUTES):
+                continue
+            return "the query pairs a person's name with a sensitive attribute"
+    return ""
+
+
+def looks_like_person_name(query: str) -> bool:
+    """True for a bare personal name, which draws a warning but is not refused."""
+
+    text = (query or "").strip()
+    if not text:
+        return False
+    return bool(_PERSON_NAME_RE.match(text) or _LATIN_NAME_RE.match(text))
+
+
 def prefers_chinese_engines(query: str) -> bool:
     """True when a query is mostly CJK text.
 
@@ -1129,6 +1410,13 @@ def search(
     query = (query or "").strip()
     if not query:
         raise ValueError("query must not be empty")
+    reason = doxxing_reason(query)
+    if reason:
+        raise ProhibitedQuery(
+            f"refused: {reason}. web-forager does not collect or assemble "
+            "profiles of identifiable people; search for a topic, a paper "
+            "title or an organisation instead."
+        )
     limit = limit or config.num_results or 8
     engine = (engine or "auto").lower()
     if engine not in SEARCH_ENGINES:
@@ -2373,6 +2661,7 @@ def extract_metadata(html: str, url: Optional[str] = None) -> dict[str, Any]:
 def render_html(url: str, config: FetchConfig) -> str:
     """Render a page with Playwright/Chromium (optional dependency)."""
 
+    assert_public_url(url, allow_private=config.allow_private)
     try:
         from playwright.sync_api import sync_playwright  # type: ignore
     except ImportError as exc:
@@ -2395,6 +2684,9 @@ def render_html(url: str, config: FetchConfig) -> str:
                 page = context.new_page()
                 page.set_default_timeout(timeout_ms)
                 page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+                # A JS or meta redirect can land on a private address; check
+                # where the document actually ended up before reading it.
+                assert_public_url(page.url, allow_private=config.allow_private)
                 try:
                     page.wait_for_load_state("networkidle", timeout=min(5_000, timeout_ms))
                 except Exception:
@@ -2793,6 +3085,23 @@ def fetch_page(
             markdown = markdown[: config.max_chars].rstrip() + "\n\n<!-- truncated by web-forager -->"
             warnings.append(f"markdown truncated to {config.max_chars} characters")
 
+        # Everything below came from a third party. Say so in the record, and
+        # name instruction-shaped passages instead of letting them read as
+        # part of the surrounding conversation.
+        injection_flags: list[str] = []
+        trust = "untrusted"
+        if config.input_gate != "off":
+            injection_flags = untrusted.scan(
+                markdown + "\n" + str(metadata.get("title", ""))
+            )
+            if injection_flags:
+                if config.input_gate == "strict":
+                    markdown = ""
+                    trust = "rejected"
+                    warnings.insert(0, untrusted.withheld(injection_flags))
+                else:
+                    warnings.insert(0, untrusted.warning(injection_flags))
+
         links = []
         if config.extract_links and not is_pdf_payload and not document_kind and not feed_format:
             links = extract_links(
@@ -2822,6 +3131,8 @@ def fetch_page(
             "tables": tables,
             "links": links,
             "warnings": warnings,
+            "trust": trust,
+            "injection_flags": injection_flags,
         }
     finally:
         if own_fetcher:
@@ -2851,6 +3162,19 @@ def search_warnings(
             "most likely split the query into single characters (common with "
             "quoted or CJK names). Treat these results as unrelated and try "
             "another engine or a more specific query."
+        )
+    if results:
+        probe = " ".join(
+            f"{item.get('title', '')} {item.get('snippet', '')}" for item in results[:8]
+        )
+        flags = untrusted.scan(probe)
+        if flags:
+            warnings.append(untrusted.warning(flags))
+    if looks_like_person_name(query):
+        warnings.append(
+            "the query is a bare personal name. Searching a paper author or a "
+            "public figure is fine; do not build or publish a profile of a "
+            "private individual — that is out of scope for this tool."
         )
     return warnings
 
@@ -2886,6 +3210,13 @@ def find_within_site(
         raise ValueError("site must not be empty")
     if not query:
         raise ValueError("query must not be empty")
+    reason = doxxing_reason(query)
+    if reason:
+        raise ProhibitedQuery(
+            f"refused: {reason}. web-forager does not collect or assemble "
+            "profiles of identifiable people; search for a topic, a paper "
+            "title or an organisation instead."
+        )
     site_url = normalize_url(site if "://" in site else "https://" + site)
     pages_limit = config.max_pages if max_pages is None else max(0, max_pages)
     own_fetcher = fetcher is None

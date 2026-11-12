@@ -3,3 +3,8 @@
 *.docx -text
 *.xlsx -text
 *.epub -text
+
+# Tests and their fixtures stay in the repository for CI; they are not part
+# of a published source archive.
+tests/ export-ignore
+browser/tests/ export-ignore
