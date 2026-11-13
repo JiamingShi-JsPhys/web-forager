@@ -50,7 +50,7 @@ from bs4.element import NavigableString, Tag
 
 from . import untrusted
 
-__version__ = "1.2.2"
+__version__ = "1.2.3"
 
 DEFAULT_USER_AGENT = (
     f"WebForager/{__version__} (Information Gathering; "

@@ -1,6 +1,6 @@
 ---
 name: web-forager
-version: 1.2.2
+version: 1.2.3
 description: >
   Polite, robots-aware web information gathering with two modes. HTTP mode
   searches 360/Bing/Sogou/WeChat, reads HTML/PDF/DOCX/XLSX/EPUB/CSV and RSS/Atom,
@@ -13,7 +13,7 @@ description: >
   arXiv/Crossref/PubMed/DOI. Ships a CLI, an OpenCLI-style --agent envelope and
   two stdio MCP servers.
 metadata:
-  version: 1.2.2
+  version: 1.2.3
   author: Jiaming Shi
   license: MIT
   entry_point: python run.py

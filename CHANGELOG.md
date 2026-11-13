@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.2.3 — 2026-11-15
+
+A follow-up hardening release after a DeepSec Shield audit of 1.2.2.
+
+### Security
+
+- **The browser bridge is no longer started through a shell.** `--bridge` and `WEB_FORAGER_BRIDGE` are split into an executable and its arguments and run directly, so a path or environment value cannot append a second command. Quoted paths with spaces still work; pipes, `&&` and redirection are not interpreted.
+- **CI actions are pinned to commit SHAs.** `actions/checkout`, `actions/setup-python` and `actions/setup-node` name the exact commit, so a moved tag cannot change what the workflow runs.
+
+### Documentation
+
+- The reference states that the bridge command is split on whitespace and started without a shell.
+
+### Tests
+
+- **228 Python tests** and **81 browser tests**, all offline. New coverage: quoted bridge paths, literal backslashes, an unterminated quote, and a shell metacharacter that must be passed through as an argument rather than executed.
+
 ## 1.2.2 — 2026-11-15
 
 A hardening release that replaces the 1.2.2 build published on 2026-11-12: a request can no longer be aimed at the machine or the LAN, browser state stays in a profile of its own, and fetched text is labelled as third-party data. The legal-notice rewrite and packaging rules from that earlier build are included.

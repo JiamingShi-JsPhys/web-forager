@@ -10,7 +10,7 @@ One engine behind three front doors — a CLI, two MCP servers and a Claude Code
 
 **English** · [简体中文](README_zh.md)
 
-**Version:** 1.2.2 | **License:** MIT | **Python:** 3.10+ | **Node:** 18+ (browser mode)
+**Version:** 1.2.3 | **License:** MIT | **Python:** 3.10+ | **Node:** 18+ (browser mode)
 
 > For learning and information gathering only. Read the [full legal notice](#full-legal-notice) before use.
 

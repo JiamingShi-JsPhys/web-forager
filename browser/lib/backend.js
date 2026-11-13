@@ -2,6 +2,7 @@
 
 const { spawn } = require("node:child_process");
 const { ActorError } = require("./errors");
+const { splitCommand } = require("./bridge");
 
 const BACKENDS = {
   iab: "in-app browser session driven by a bridge process",
@@ -73,6 +74,18 @@ class BridgeBackend {
     this.name = options.name || "iab";
     this.available = true;
     this.command = command;
+    try {
+      this.argv = splitCommand(command);
+    } catch (error) {
+      throw new ActorError("argument", error.message, "Quote the whole path, or drop the stray quote.");
+    }
+    if (!this.argv.length) {
+      throw new ActorError(
+        "argument",
+        "empty browser bridge command",
+        "Pass --bridge, or unset WEB_FORAGER_BRIDGE to use the bundled bridge.",
+      );
+    }
     this.timeout = options.timeout || 30000;
     this.child = null;
     this.buffer = "";
@@ -142,7 +155,10 @@ class BridgeBackend {
 
   start() {
     if (this.child) return;
-    const child = spawn(this.command, { shell: true, stdio: ["pipe", "pipe", "pipe"] });
+    const [file, ...args] = this.argv;
+    // No shell: the command was split into an executable and its arguments, so
+    // a path or an environment value cannot smuggle a second command in.
+    const child = spawn(file, args, { shell: false, stdio: ["pipe", "pipe", "pipe"] });
     this.child = child;
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk) => this.onData(chunk));

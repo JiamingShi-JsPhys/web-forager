@@ -29,6 +29,46 @@ function quote(value) {
   return /\s/.test(value) ? `"${value}"` : value;
 }
 
+// The bridge command is executed directly, never through a shell. Split it on
+// whitespace, keeping quoted paths together; backslashes are literal so a
+// Windows path is not mistaken for an escape. Shell operators (pipes, `&&`,
+// redirections) are therefore not interpreted.
+function splitCommand(command) {
+  const text = String(command == null ? "" : command).trim();
+  if (!text) return [];
+  const parts = [];
+  let current = "";
+  let quoted = "";
+  let started = false;
+  for (const char of text) {
+    if (quoted) {
+      if (char === quoted) quoted = "";
+      else current += char;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quoted = char;
+      started = true;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      if (started) {
+        parts.push(current);
+        current = "";
+        started = false;
+      }
+      continue;
+    }
+    current += char;
+    started = true;
+  }
+  if (quoted) {
+    throw new Error(`unterminated ${quoted} quote in the bridge command`);
+  }
+  if (started) parts.push(current);
+  return parts;
+}
+
 function resolveBridge(explicit) {
   const given = typeof explicit === "string" ? explicit.trim() : "";
   if (given) return given;
@@ -40,4 +80,4 @@ function resolveBridge(explicit) {
   return bundled ? `node ${quote(bundled)}` : "";
 }
 
-module.exports = { BUNDLED_BRIDGE, bundledBridge, resolveBridge };
+module.exports = { BUNDLED_BRIDGE, bundledBridge, resolveBridge, splitCommand };
