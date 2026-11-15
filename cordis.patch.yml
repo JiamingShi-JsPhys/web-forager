@@ -1,3 +1,19 @@
 - insert:
-    - id: web-forager
-      name: web-forager
+    - id: mcp-web-forager
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: web-forager
+        transport: stdio
+        command: python
+        args: ['mcp_server.py']
+        cwd: !!js "dshHomePath('profiles/' + ctx.get('profileContext').name + '/node_modules/web-forager')"
+        failOnStartupError: false
+    - id: mcp-web-forager-browser
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: web-forager-browser
+        transport: stdio
+        command: node
+        args: ['browser/mcp_server.js']
+        cwd: !!js "dshHomePath('profiles/' + ctx.get('profileContext').name + '/node_modules/web-forager')"
+        failOnStartupError: false

@@ -52,6 +52,8 @@ Then install the entry it lists:
 /plugin install web-forager@web-forager-marketplace
 ```
 
+**Host MCP notes.** Codex reads `.codex-plugin/mcp.json`, whose relative paths resolve against the installed plugin directory rather than `${CLAUDE_PLUGIN_ROOT}`. CodeBuddy reads `mcpServers` from `.codebuddy-plugin/plugin.json`; run `/reload-plugins` or start a new session after install, because `codebuddy mcp list` can run before plugins are mounted and show none. dsh registers both servers through `@deepseek-ai/dsh-mcp-client` in `cordis.patch.yml`; start a new profile session after install. All three expose the same ten HTTP tools and four browser tools.
+
 Cursor, Windsurf, Cline's IDE extension, Continue, Roo Code, GitHub Copilot and opencode each read a rule file from their own location, and none of them accepts this repository as a plugin — Cline's `cline plugin install` takes only JS/TS plugin packages, Cursor's plugin format is a different bundle, and `opencode plugin <module>` installs npm modules. **No vendor ships an installer that understands another vendor's rule file**, so this repository ships one:
 
 ```bash

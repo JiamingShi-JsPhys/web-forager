@@ -83,6 +83,8 @@ Append `#v1.3.0` to pin the install to this release. Drop it to follow the defau
 
 Claude Code, Codex, dsh and CodeBuddy take a one-line plugin command; Cursor, Windsurf, Cline, Continue, Roo Code, GitHub Copilot and opencode read a rule file, and one script writes all of them. Every command, every flag and the optional dependencies live on one page: **[docs/INSTALL_COMMANDS.md](docs/INSTALL_COMMANDS.md)**.
 
+Each plugin host gets its own MCP launch file: Claude Code reads `.mcp.json`, Codex reads `.codex-plugin/mcp.json`, CodeBuddy reads the `mcpServers` block in `.codebuddy-plugin/plugin.json`, and dsh reads the two `dsh-mcp-client` entries in `cordis.patch.yml`. After installing in CodeBuddy or dsh, start a new session so the servers mount; `codebuddy mcp list` can run before plugins load and is not a health check.
+
 ### Keeping an installed copy current
 
 A host copies the plugin into a cache of its own, and that copy is what actually runs. A fixed bug keeps running until the cache is refreshed — and a marketplace backed by a local folder may hold a snapshot rather than the live directory.
@@ -376,7 +378,7 @@ python -m pytest
 node --test "browser/tests/*.test.js"
 ```
 
-253 Python tests and 87 browser tests, all offline. The Python suite starts a temporary local HTTP server for robots.txt, articles, PDF/Office files, feeds, sitemaps, search-result pages and multi-hop surf pages; the browser suite uses a fake backend and fake bridges that speak the same wire protocol, plus snapshots recorded from live pages. CI runs both from a repository clone; release archives exclude the test folders.
+258 Python tests and 87 browser tests, all offline. The Python suite starts a temporary local HTTP server for robots.txt, articles, PDF/Office files, feeds, sitemaps, search-result pages and multi-hop surf pages; the browser suite uses a fake backend and fake bridges that speak the same wire protocol, plus snapshots recorded from live pages. CI runs both from a repository clone; release archives exclude the test folders.
 
 ## Full legal notice
 

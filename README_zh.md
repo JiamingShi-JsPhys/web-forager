@@ -83,6 +83,8 @@ https://github.com/JiamingShi-JsPhys/web-forager
 
 Claude Code、Codex、dsh 与 CodeBuddy 用一行插件命令即可；Cursor、Windsurf、Cline、Continue、Roo Code、GitHub Copilot 与 opencode 读规则文件，一个脚本能把它们全部写好。各宿主的完整命令、全部参数与可选依赖都在这一页：**[docs/INSTALL_COMMANDS_zh.md](docs/INSTALL_COMMANDS_zh.md)**。
 
+每个插件宿主读自己的 MCP 启动文件：Claude Code 读 `.mcp.json`，Codex 读 `.codex-plugin/mcp.json`，CodeBuddy 读 `.codebuddy-plugin/plugin.json` 里的 `mcpServers`，dsh 读 `cordis.patch.yml` 里的两个 `dsh-mcp-client` 条目。在 CodeBuddy 或 dsh 安装后请新开一个会话让服务挂载；`codebuddy mcp list` 可能在插件加载前运行，不能当作健康检查。
+
 ### 让已安装的副本保持最新
 
 宿主会把插件复制进自己的缓存，真正运行的是那份副本。修好的 bug 会一直跑到缓存被刷新为止；而以本地目录为源的市场，可能存的是一份快照，而不是实时目录。
@@ -376,7 +378,7 @@ python -m pytest
 node --test "browser/tests/*.test.js"
 ```
 
-253 个 Python 测试与 87 个浏览器测试，全部离线。Python 套件会起一个临时本地 HTTP 站点，提供 robots.txt、文章、PDF/Office 文件、订阅源、sitemap、搜索结果页与多跳 surf 页面；浏览器套件用假后端与说同一套线协议的假桥，再加真实页面导出的快照。CI 从仓库克隆里跑两套；发布归档不含测试目录。
+258 个 Python 测试与 87 个浏览器测试，全部离线。Python 套件会起一个临时本地 HTTP 站点，提供 robots.txt、文章、PDF/Office 文件、订阅源、sitemap、搜索结果页与多跳 surf 页面；浏览器套件用假后端与说同一套线协议的假桥，再加真实页面导出的快照。CI 从仓库克隆里跑两套；发布归档不含测试目录。
 
 ## 完整法律声明
 

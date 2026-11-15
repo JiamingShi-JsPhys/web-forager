@@ -5,5 +5,21 @@
   "author": {
     "name": "Jiaming Shi"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "mcpServers": {
+    "web-forager": {
+      "type": "stdio",
+      "command": "python",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/mcp_server.py"
+      ]
+    },
+    "web-forager-browser": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/browser/mcp_server.js"
+      ]
+    }
+  }
 }

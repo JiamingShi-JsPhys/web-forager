@@ -10,5 +10,6 @@
     "displayName": "Web Forager",
     "shortDescription": "Polite web fetching, Markdown cleaning and Bilibili browsing.",
     "category": "Information Gathering"
-  }
+  },
+  "mcpServers": "./.codex-plugin/mcp.json"
 }

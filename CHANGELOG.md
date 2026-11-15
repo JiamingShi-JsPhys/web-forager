@@ -20,6 +20,14 @@ A workflow release: a robots policy that can record an authorised override, sear
 - **`max_pages` now means readable pages.** `fetch --query` keeps scanning past a robots-denied or unreadable result (up to a bounded number of attempts), returns the pages it could read, and lists the rest in `skipped` with a code and reason. The response carries a summary warning instead of leaving the agent to discover failures page by page.
 - The `robots_denied` hint now names `--robots-policy warn` for an authorised override and says not to silently switch to a tool that ignores robots. A `verification_required` skip says the same about not solving the check, and points a WeChat link at the `wechat-dig` playbook.
 
+### Host compatibility
+
+- **Codex now gets a working MCP launch.** The plugin ships `.codex-plugin/mcp.json`, which uses relative `mcp_server.py` and `browser/mcp_server.js` paths with `cwd: "."`; Codex resolves both against the installed plugin directory. It no longer inherits Claude Code's `${CLAUDE_PLUGIN_ROOT}` argument, which Codex leaves literal.
+- **CodeBuddy now declares its MCP servers in the manifest it reads.** `.codebuddy-plugin/plugin.json` carries both `mcpServers` entries with `${CLAUDE_PLUGIN_ROOT}`, so a new CodeBuddy session mounts the HTTP and browser servers. `codebuddy mcp list` can run before plugins are mounted; an empty list there is not a failed install.
+- **dsh now mounts real tools.** `cordis.patch.yml` inserts two `@deepseek-ai/dsh-mcp-client` entries, one per server, and resolves the profile package directory with `dshHomePath(...)`. The previous patch mounted only the no-op `web-forager` module.
+- **The npm package carries every host manifest.** `files` now includes `.claude-plugin/`, `.codex-plugin/`, `.codebuddy-plugin/`, `.dsh-plugin/`, `.mcp.json`, the rule-file directories, `install.py` and `requirements.txt`.
+- The Cursor rule heading now says v1.3.0 instead of v1.0.0.
+
 ### Documentation
 
 - `SKILL.md` and `AGENTS.md` state the rule: a `robots_denied` or `login_required` result is a boundary, not a prompt to re-fetch with a tool that ignores robots.
@@ -28,7 +36,7 @@ A workflow release: a robots policy that can record an authorised override, sear
 
 ### Tests
 
-- **253 Python tests** and **87 browser tests**, all offline. New coverage: the warn policy and its record, clean compliance fields, filling pages past a denial, overlapping engines versus `--serial-engines`, the launcher dry run, saving storage state through the bridge protocol, WeChat verification detection at the engine, the CLI and the search layer, the `wechat-dig` capture and `blocked` paths, the `content` snapshot node, domain/freshness tie-breaks, host diversity, query variants, and the shell-render fallback with and without its budget.
+- **258 Python tests** and **87 browser tests**, all offline. New coverage: the warn policy and its record, clean compliance fields, filling pages past a denial, overlapping engines versus `--serial-engines`, the launcher dry run, saving storage state through the bridge protocol, WeChat verification detection at the engine, the CLI and the search layer, the `wechat-dig` capture and `blocked` paths, the `content` snapshot node, domain/freshness tie-breaks, host diversity, query variants, the shell-render fallback with and without its budget, plus the Codex/CodeBuddy/dsh MCP manifests and the npm host-file list.
 
 ## 1.2.3 — 2026-11-15
 

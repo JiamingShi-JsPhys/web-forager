@@ -22,6 +22,8 @@ that matches the hard rules; it is a screen, not a sandbox.
 Install this directory as a **single plugin** (Claude Code, Codex, CodeBuddy
 or DSH). Do not copy `scripts/` or `run.py` into another skill folder: the CLI,
 the MCP server and `SKILL.md` share one engine and one robots/cache pipeline.
+Each plugin host has its own MCP launch file; dsh mounts both servers through
+the `@deepseek-ai/dsh-mcp-client` entries in `cordis.patch.yml`.
 
 ## Entry points (Python 3.10+)
 

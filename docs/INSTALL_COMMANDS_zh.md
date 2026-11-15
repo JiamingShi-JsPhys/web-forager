@@ -52,6 +52,8 @@ dsh plugin --profile web add github:JiamingShi-JsPhys/web-forager#v1.3.0
 /plugin install web-forager@web-forager-marketplace
 ```
 
+**各宿主的 MCP 说明。** Codex 读取 `.codex-plugin/mcp.json`，其中的相对路径按已安装插件目录解析，不使用 `${CLAUDE_PLUGIN_ROOT}`。CodeBuddy 从 `.codebuddy-plugin/plugin.json` 读取 `mcpServers`；安装后运行 `/reload-plugins` 或新开会话，因为 `codebuddy mcp list` 可能在插件挂载前运行而显示为空。dsh 通过 `cordis.patch.yml` 里的 `@deepseek-ai/dsh-mcp-client` 注册两个服务；安装后新开 profile 会话。三者的工具集相同：十个 HTTP 工具与四个浏览器工具。
+
 Cursor、Windsurf、Cline 的 IDE 扩展、Continue、Roo Code、GitHub Copilot 与 opencode 各自从自己的位置读取规则文件，而且它们都不接受本仓库作为插件——Cline 的 `cline plugin install` 只接受 JS/TS 插件包，Cursor 的插件格式是另一套打包，`opencode plugin <module>` 装的是 npm 模块。**没有任何厂商提供能识别别家规则文件的安装器**，所以本仓库自带一个：
 
 ```bash

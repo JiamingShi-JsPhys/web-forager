@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "web-forager": {
+      "type": "stdio",
+      "command": "python",
+      "args": [
+        "mcp_server.py"
+      ],
+      "cwd": "."
+    },
+    "web-forager-browser": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "browser/mcp_server.js"
+      ],
+      "cwd": "."
+    }
+  }
+}

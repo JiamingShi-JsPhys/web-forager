@@ -154,6 +154,7 @@ def test_required_files_exist() -> None:
         "scripts/bilibili.py",
         "mcp_server.py",
         ".mcp.json",
+        ".codex-plugin/mcp.json",
         "AGENTS.md",
         "install.py",
         "package.json",
@@ -201,6 +202,59 @@ def test_multi_platform_manifests() -> None:
         assert market["plugins"][0]["source"] == "./"
 
     assert "web-forager" in (PLUGIN_ROOT / ".dsh-plugin" / "index.js").read_text(encoding="utf-8")
+
+
+def test_codex_uses_its_own_relative_mcp_config() -> None:
+    manifest = json.loads((PLUGIN_ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    assert manifest["mcpServers"] == "./.codex-plugin/mcp.json"
+    config = json.loads((PLUGIN_ROOT / ".codex-plugin" / "mcp.json").read_text(encoding="utf-8"))
+    servers = config["mcpServers"]
+    assert set(servers) == {"web-forager", "web-forager-browser"}
+    assert servers["web-forager"]["args"] == ["mcp_server.py"]
+    assert servers["web-forager-browser"]["args"] == ["browser/mcp_server.js"]
+    for server in servers.values():
+        assert server["type"] == "stdio"
+        assert server["cwd"] == "."
+        assert "${CLAUDE_PLUGIN_ROOT}" not in json.dumps(server)
+
+
+def test_codebuddy_declares_mcp_servers_in_its_manifest() -> None:
+    manifest = json.loads((PLUGIN_ROOT / ".codebuddy-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    servers = manifest["mcpServers"]
+    assert set(servers) == {"web-forager", "web-forager-browser"}
+    assert servers["web-forager"]["type"] == "stdio"
+    assert servers["web-forager"]["args"] == ["${CLAUDE_PLUGIN_ROOT}/mcp_server.py"]
+    assert servers["web-forager-browser"]["args"] == ["${CLAUDE_PLUGIN_ROOT}/browser/mcp_server.js"]
+
+
+def test_dsh_bundle_registers_both_mcp_clients() -> None:
+    patch = (PLUGIN_ROOT / "cordis.patch.yml").read_text(encoding="utf-8")
+    assert patch.count("@deepseek-ai/dsh-mcp-client") == 2
+    assert "serverName: web-forager" in patch
+    assert "serverName: web-forager-browser" in patch
+    assert "dshHomePath(" in patch
+    assert "mcp_server.py" in patch
+    assert "browser/mcp_server.js" in patch
+
+
+def test_npm_package_carries_every_host_manifest() -> None:
+    files = json.loads((PLUGIN_ROOT / "package.json").read_text(encoding="utf-8"))["files"]
+    required = {
+        ".claude-plugin/",
+        ".codex-plugin/",
+        ".codebuddy-plugin/",
+        ".dsh-plugin/",
+        ".mcp.json",
+        "install.py",
+        "requirements.txt",
+    }
+    assert required <= set(files)
+
+
+def test_cursor_rule_heading_matches_version() -> None:
+    rule = (PLUGIN_ROOT / ".cursor" / "rules" / "web-forager.mdc").read_text(encoding="utf-8")
+    assert "agent operating rules (v1.3.0)" in rule
+    assert "agent operating rules (v1.0.0)" not in rule
 
 
 def test_mcp_registration() -> None:
