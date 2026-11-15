@@ -2,6 +2,7 @@
 "use strict";
 
 const fs = require("node:fs");
+const path = require("node:path");
 const { version } = require("./package.json");
 const { createBackend, BACKENDS } = require("./lib/backend");
 const { getPlaybook, listPlaybooks } = require("./lib/playbooks");
@@ -54,6 +55,8 @@ function parse(argv) {
     maxScreens: 3,
     commentScrolls: 3,
     observeMs: 3000,
+    storageState: "",
+    saveStorageState: "",
   };
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
@@ -91,7 +94,7 @@ function printHelp() {
       "",
       "Options:",
       "  --session NAME       resumable session name (default: default)",
-      "  --url URL            seed or target URL",
+      "  --url URL            seed or target URL (wechat-dig: the article URL)",
       "  --bvid BV...         Bilibili video id",
       "  --query TEXT         search query (search-dig)",
       "  --max-items N        maximum captured items (default: 10)",
@@ -103,6 +106,8 @@ function printHelp() {
       "  --out FILE           write the full result as JSON",
       "  --bridge CMD         browser bridge command (default: bundled playwright bridge)",
       "  --backend NAME       iab, extension or cdp (default: iab)",
+      "  --storage-state FILE  load cookies/localStorage from a Playwright state file",
+      "  --save-storage-state FILE  write the session state after the run (mode 0600)",
       "  --allow-write        permit write-like clicks (default: deny)",
       "  --strict-robots      consult robots.txt before every navigation (default: off)",
       "  --allow-private      DANGEROUS: allow loopback/private targets (default: refuse)",
@@ -232,6 +237,27 @@ async function main() {
   }
 
   const backend = createBackend({ bridge, backend: options.backend });
+  if (options.storageState) {
+    process.env.WEB_FORAGER_STORAGE_STATE = options.storageState;
+  }
+  if (options.saveStorageState) {
+    const target = path.resolve(options.saveStorageState);
+    if (options.root) {
+      const root = path.resolve(options.root);
+      if (target === root || target.startsWith(root + path.sep)) {
+        return fail(
+          new ActorError(
+            "argument",
+            "refusing to write storage state inside --root",
+            "Storage state contains cookies and logins; write it outside the workspace.",
+          ),
+          options.agent,
+        );
+      }
+    }
+    options.saveStorageState = target;
+    fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
+  }
   const ctx = makeContext({
     backend,
     session,
@@ -242,6 +268,8 @@ async function main() {
 
   let result;
   let capabilities = null;
+  let storageStateResult = null;
+  let storageStateError = "";
   try {
     capabilities = await backend.capabilities();
     result = await playbook.run(ctx);
@@ -249,6 +277,20 @@ async function main() {
     return fail(error, options.agent);
   } finally {
     saveSession(session);
+    if (options.saveStorageState) {
+      try {
+        storageStateResult = await backend.request(
+          "storage_state",
+          { path: options.saveStorageState },
+          10000,
+        );
+        if (process.platform !== "win32") {
+          fs.chmodSync(options.saveStorageState, 0o600);
+        }
+      } catch (error) {
+        storageStateError = error && error.message ? error.message : String(error);
+      }
+    }
     await backend.close();
   }
   const summary = result && result.summary !== undefined ? result.summary : result;
@@ -284,6 +326,11 @@ async function main() {
       dedicated_profile: !process.env.WEB_FORAGER_BROWSER_CDP,
       shared_browser: Boolean(process.env.WEB_FORAGER_BROWSER_CDP),
     },
+    storage_state: {
+      loaded: Boolean(options.storageState),
+      saved: Boolean(storageStateResult && storageStateResult.saved),
+      path: storageStateResult && storageStateResult.path ? storageStateResult.path : "",
+    },
     session: {
       name: session.name,
       file: sessionPath(session.name),
@@ -301,6 +348,15 @@ async function main() {
               "login in that profile is reachable by the pages it opens. Use the " +
               "dedicated profile for anything you would not hand to a stranger.",
           ]
+        : []),
+      ...(options.storageState
+        ? [
+            "a storage-state file was loaded; it carries cookies and logins. " +
+              "Keep it out of git and off shared drives.",
+          ]
+        : []),
+      ...(storageStateError
+        ? [`could not save storage state: ${storageStateError}`]
         : []),
     ],
     records: options.core ? ctx.records.map(normalizeRecord) : ctx.records,

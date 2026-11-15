@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.3.0 — 2026-11-15
+
+A workflow release: a robots policy that can record an authorised override, search that fills its page budget with readable results, parallel engines, and a browser session you can log into once.
+
+### Added
+
+- **`--robots-policy respect|warn|ignore`.** `respect` is the default and still refuses a disallowed path. `warn` reads it and writes `compliance.robots_overridden: true` plus a warning, for a user who is authorised to read the page. `ignore` is the old `--ignore-robots`, with `robots_checked: false`. Every HTTP record now carries a `compliance` block.
+- **The browser profile launcher** (`browser/launch_chrome.py`) starts Chrome/Chromium/Edge with `~/.web-forager/browser/profile` and a DevTools port, prints the `WEB_FORAGER_BROWSER_CDP` value, and supports `--dry-run`.
+- **Storage-state import and export** for browser mode: `--storage-state FILE` loads cookies/localStorage, `--save-storage-state FILE` writes them after the run. A saved file is forced to mode `0600`, a path inside `--root` is refused, and the record says the file carries login state.
+- **`--serial-engines`** keeps a diagnostic run strictly serial; the default now asks engines on different hosts at the same time while each host keeps its one-request-per-second delay.
+- **A `wechat-dig` browser playbook** opens one WeChat article URL in the browser profile and captures its text. When the profile has already passed WeChat's environment check the article is read; when it has not, the playbook reports `blocked` with a hint and does not try to solve the check.
+- **Verification pages are reported instead of recycled.** HTTP mode recognises WeChat's environment check and the common English anti-bot interstitials, raises `VerificationRequired`, and `fetch --query` records the result as `verification_required` with a warning that names the browser route. The CLI exits 9. The bundled bridge also hands the whole `#js_content` article over as one `content` snapshot node, so WeChat paragraphs are not reassembled from leaf spans.
+- **Automatic render fallback for script shells.** When a server answers with a minimal HTML page that carries only a script or redirect, `--render auto` now renders it once with Playwright before extraction. The record says `render_fallback: true`; `fetch --query` allows at most two such renders per query, so one slow site cannot stall a search. This needs no API key and closes the php.cn-style empty-page case.
+- **Free ranking and query repair.** Search results are ordered by query coverage, title match, a small domain prior (docs, papers, government and universities up; document farms down) and snippet freshness. The final list keeps at most two results per host and fills the rest from the overflow. A thin first pass is retried once with a simplified query — quotes and common stopwords removed, or a spaced CJK query joined — and the retry is marked `query_variant` in `engine_report`. No model, key or network service is involved.
+
+### Changed
+
+- **`max_pages` now means readable pages.** `fetch --query` keeps scanning past a robots-denied or unreadable result (up to a bounded number of attempts), returns the pages it could read, and lists the rest in `skipped` with a code and reason. The response carries a summary warning instead of leaving the agent to discover failures page by page.
+- The `robots_denied` hint now names `--robots-policy warn` for an authorised override and says not to silently switch to a tool that ignores robots. A `verification_required` skip says the same about not solving the check, and points a WeChat link at the `wechat-dig` playbook.
+
+### Documentation
+
+- `SKILL.md` and `AGENTS.md` state the rule: a `robots_denied` or `login_required` result is a boundary, not a prompt to re-fetch with a tool that ignores robots.
+- The reference documents the launcher, storage-state switches, the robots policy, the new `compliance` block, the `wechat-dig` playbook and exit 9.
+- Both READMEs were rewritten around a first visit: one pitch, the three install methods, what a run looks like, the security boundary and the legal notice, plus a section on keeping an installed copy current (including the ZCode marketplace-snapshot trap). A DeepSec Shield scan of the release tree reports 0 findings; its agent audit still flags the three signature strings this project defines, which are the scanner's own patterns, not page content.
+
+### Tests
+
+- **253 Python tests** and **87 browser tests**, all offline. New coverage: the warn policy and its record, clean compliance fields, filling pages past a denial, overlapping engines versus `--serial-engines`, the launcher dry run, saving storage state through the bridge protocol, WeChat verification detection at the engine, the CLI and the search layer, the `wechat-dig` capture and `blocked` paths, the `content` snapshot node, domain/freshness tie-breaks, host diversity, query variants, and the shell-render fallback with and without its budget.
+
 ## 1.2.3 — 2026-11-15
 
 A follow-up hardening release after a DeepSec Shield audit of 1.2.2.

@@ -78,7 +78,7 @@ test("the MCP server initializes, lists tools and answers calls", async () => {
     const payload = JSON.parse(playbooks.result.content[0].text);
     assert.deepEqual(
       payload.playbooks.map((item) => item.name).sort(),
-      ["bili-chain", "bili-danmaku", "bili-feed", "bili-video", "search-dig", "xhs-dig", "zhihu-dig"],
+      ["bili-chain", "bili-danmaku", "bili-feed", "bili-video", "search-dig", "wechat-dig", "xhs-dig", "zhihu-dig"],
     );
     assert.ok(payload.backends.extension);
 

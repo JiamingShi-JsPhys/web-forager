@@ -36,6 +36,7 @@ npm install playwright && npx playwright install chromium
 node browser/run.js --doctor
 node browser/run.js --playbook bili-feed --session bili-01 --max-items 8 --agent
 node browser/run.js --playbook zhihu-dig --query "reinforcement learning" --agent
+node browser/run.js --playbook wechat-dig --url "https://mp.weixin.qq.com/s/..." --agent
 ```
 
 | Playbook | Does | Requires |
@@ -47,8 +48,13 @@ node browser/run.js --playbook zhihu-dig --query "reinforcement learning" --agen
 | `zhihu-dig` | Zhihu search, rank links, capture the best unseen page | `--query` |
 | `xhs-dig` | Xiaohongshu public notes, rank `/explore` links, capture one | `--query` |
 | `search-dig` | Bilibili search, rank cards, open the best unseen result | `--query` |
+| `wechat-dig` | One WeChat article; reports the environment-check wall instead of recycling it | `--url` |
+
+WeChat articles are the one case HTTP mode cannot finish. `mp.weixin.qq.com` disallows `/s` in robots.txt, and even with `--robots-policy warn` the article URL answers with an environment-check page or a captcha redirect instead of the body; the HTTP record reports `verification_required` (exit 9) rather than handing back the error page as content. `wechat-dig` opens the same URL in a real browser profile. If that profile has already passed WeChat's check, the article is captured; if not, the playbook reports `blocked` and does not attempt the challenge.
 
 The bundled bridge is picked up automatically once `playwright` and its Chromium binary are installed; `--bridge` or `WEB_FORAGER_BRIDGE` points at a bridge elsewhere. The command is split on whitespace and started without a shell, so quote a path that contains spaces and pass arguments as usual; pipes, `&&` and redirection are not interpreted. `WEB_FORAGER_BROWSER_HEADFUL=1` shows the window, `WEB_FORAGER_BROWSER_PROFILE=/path` reuses a persistent profile (this is what carries login state for the `extension` backend), and `WEB_FORAGER_BROWSER_CDP=http://127.0.0.1:9222` attaches to a browser you already control (`cdp`). A bridge declares its real capabilities through an optional `describe` call; one that does not implement it is reported as `declared: false` with every capability false.
+
+To sign in once, run `python browser/launch_chrome.py` (it defaults to `~/.web-forager/browser/profile`, prints the `WEB_FORAGER_BROWSER_CDP` value, and supports `--dry-run`), then pass `--backend cdp`. `--storage-state FILE` loads a Playwright state file before the run; `--save-storage-state FILE` writes one after it, with mode `0600` and a refusal if the path is inside `--root`. That file contains cookies and logins: treat it as a credential, keep it out of git, and do not copy it to a shared machine.
 
 `--strict-robots` fetches `robots.txt` before every navigation and stops with `robots_denied` (exit 3) on a disallowed path. Without it the record says so: `compliance.robots_checked` is `false`. A run that reaches the site but finds nothing readable is `degraded` (exit 8) with its records attached; an anti-bot or error interstitial is `blocked` (exit 9); a site that asks for credentials is `login_required` (exit 6).
 
@@ -122,11 +128,14 @@ python run.py --action bili --mode feed --max-items 10
 | `metadata`, `markdown`, `tables`, `warnings` | yes | yes |
 | `trust`, `injection_flags` | yes | yes |
 | `url`, `title` | yes (`url` and `final_url`) | yes |
-| `status`, `content_type`, `document_kind`, `cached`, `rendered`, `fetched_at`, `chunks`, `links` | yes | no |
+| `status`, `content_type`, `document_kind`, `cached`, `rendered`, `render_fallback`, `fetched_at`, `chunks`, `links` | yes | no |
 | `schema_version`, `captured_at`, `playbook`, `backend`, `compliance`, `viewport_evidence`, `interaction_trace` | no | yes |
 
-`--core` returns the shared shape instead:
+`render_fallback` is `true` when the server answered with a minimal script shell and HTTP mode rendered it once with Playwright before extraction. A `fetch --query` allows at most two such renders, and each one adds several seconds.
 
+Search results are ordered by query coverage, title match, a small domain prior, snippet freshness and engine order. The final list keeps at most two results per host, so one dominant host cannot crowd out every other source; when too few hosts answered, the overflow fills the remaining slots. A thin first pass is retried once with a simplified query (quotes and common stopwords removed, or a spaced CJK query joined); that retry appears in `engine_report` with `query_variant`.
+
+`--core` returns the shared shape instead:
 ```json
 {
   "schema_version": "core-1",
@@ -190,6 +199,7 @@ Writes only:
 | 5 | extraction or capture failed |
 | 6 | Playwright requested but unavailable |
 | 7 | PDF requested but `pypdf` unavailable |
+| 9 | verification or anti-bot page instead of content (`verification_required` in HTTP mode, `blocked` in browser mode) |
 | 130 | interrupted |
 
 Browser mode reuses that table and changes or adds only these codes:
@@ -242,10 +252,10 @@ web-forager/
 ├── run.py                        CLI: nine actions
 ├── mcp_server.py                 MCP stdio server (10 HTTP tools)
 ├── browser/                      browser mode (Node 18+)
-│   ├── run.js                    CLI: seven read-only playbooks
+│   ├── run.js                    CLI: eight read-only playbooks
 │   ├── mcp_server.js             MCP stdio server (4 browser tools)
 │   ├── lib/                      bridge backend, session, record, safety, selectors, robots, snapshot
-│   ├── playbooks/                bili-* / zhihu-dig / xhs-dig / search-dig
+│   ├── playbooks/                bili-* / zhihu-dig / xhs-dig / search-dig / wechat-dig
 │   ├── bridges/                  optional Playwright reference bridge
 │   └── tests/                    fake backends, real-page snapshots, live smoke
 ├── SKILL.md                      Claude Code skill contract

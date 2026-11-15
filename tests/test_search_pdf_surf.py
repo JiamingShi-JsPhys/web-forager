@@ -473,7 +473,7 @@ def _stub_search(monkeypatch, results):
     monkeypatch.setattr(
         engine,
         "fetch_page",
-        lambda url, config, fetcher=None: {"url": url, "title": "", "markdown": "", "tables": [], "warnings": []},
+        lambda url, config, fetcher=None, **kwargs: {"url": url, "title": "", "markdown": "", "tables": [], "warnings": []},
     )
 
 
@@ -529,3 +529,10 @@ def test_surf_warns_when_query_is_ignored(monkeypatch) -> None:
     )
     payload = mcp_server._tool_surf({"url": "https://example.org/", "query": "张三"})
     assert any("query was ignored" in item for item in payload["warnings"])
+
+
+def test_360_verification_page_is_reported_not_parsed() -> None:
+    wall = "<html><body><h2>安全验证</h2><p>请完成验证后继续访问</p></body></html>"
+    assert engine.is_360_blocked(wall)
+    results = '<html><body><ul class="res-list"><li>ok</li></ul></body></html>'
+    assert not engine.is_360_blocked(results)

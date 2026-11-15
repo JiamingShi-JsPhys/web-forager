@@ -31,13 +31,27 @@ const XIAOHONGSHU = {
   resultLink: /\/explore\/[0-9A-Za-z]+|\/discovery\/item\/[0-9A-Za-z]+/,
 };
 
+const WECHAT = {
+  // https://mp.weixin.qq.com/s/... — the article body is server-rendered but
+  // only after the session passes WeChat's environment check.
+  host: /(^|\.)weixin\.qq\.com$/i,
+  articleBody: "#js_content",
+  title: "#activity-name",
+  author: "#js_name",
+  published: "#publish_time",
+  verification: /环境异常|完成验证后即可继续访问|访问过于频繁|请在微信客户端打开链接/,
+  // A blocked article redirects to this handler, whose page body is a canvas
+  // and therefore carries no text to match.
+  captchaUrl: /(appmsgcaptcha|wappoc|\/captcha|unhuman|antispider|\/verify)/i,
+};
+
 // Chinese login interstitials. Read as data: a match only means "the page is
 // asking for credentials", never that we should try to supply them.
 const LOGIN_WALL = /扫码登录|密码登录|登录后查看|登录后继续|请先登录|请登录后/;
 
 // Anti-bot, rate-limit and error interstitials. Checked only when a playbook
 // found nothing, so ordinary pages that merely mention these words are safe.
-const BLOCKED = /人机验证|安全验证|访问过于频繁|请求过于频繁|操作过于频繁|请稍后重试|滑块验证|captcha|verify you are human|access denied|403 forbidden|404 not found/i;
+const BLOCKED = /人机验证|安全验证|访问过于频繁|请求过于频繁|操作过于频繁|请稍后重试|滑块验证|环境异常|完成验证后即可继续访问|请在微信客户端打开链接|captcha|verify you are human|access denied|403 forbidden|404 not found/i;
 
 // A page with less readable text than this is treated as blank: either the
 // selector assumptions moved or the site returned a shell.
@@ -58,6 +72,7 @@ module.exports = {
   BILIBILI,
   ZHIHU,
   XIAOHONGSHU,
+  WECHAT,
   LOGIN_WALL,
   BLOCKED,
   MIN_BODY_CHARS,

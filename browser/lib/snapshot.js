@@ -115,6 +115,13 @@ function pageTitle(snapshot) {
 
 function bodyText(snapshot, limit = 8000) {
   const nodes = Array.isArray(snapshot && snapshot.nodes) ? snapshot.nodes : [];
+  // A bridge may hand back one node holding the whole article. Prefer it:
+  // leaf-level text nodes split a paragraph into fragments.
+  const content = nodes
+    .filter((node) => node && node.role === "content")
+    .map((node) => textOf(node).replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  if (content.length) return content.join("\n\n").slice(0, limit);
   const parts = [];
   for (const node of nodes) {
     const text = textOf(node).replace(/\s+/g, " ").trim();

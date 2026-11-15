@@ -28,10 +28,10 @@ const TOOLS = [
       properties: {
         playbook: {
           type: "string",
-          enum: ["bili-feed", "bili-video", "bili-chain", "bili-danmaku", "zhihu-dig", "xhs-dig", "search-dig"],
-          description: "Playbook to run.",
+          enum: ["bili-feed", "bili-video", "bili-chain", "bili-danmaku", "zhihu-dig", "xhs-dig", "search-dig", "wechat-dig"],
+          description: "Playbook to run. wechat-dig takes the article URL in `url`.",
         },
-        url: { type: "string", description: "Seed or target URL." },
+        url: { type: "string", description: "Seed or target URL (wechat-dig: the WeChat article URL)." },
         bvid: { type: "string", description: "Bilibili video id (BV...)." },
         query: { type: "string", description: "Search query for *-dig playbooks." },
         session: { type: "string", description: "Resumable session name. Defaults to default." },

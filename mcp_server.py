@@ -39,6 +39,11 @@ _TOOLS: list[dict[str, Any]] = [
                     "type": "boolean",
                     "description": "Check robots.txt before fetching (default true). Set false only for resources you are authorised to read.",
                 },
+                "robots_policy": {
+                    "type": "string",
+                    "enum": ["respect", "warn", "ignore"],
+                    "description": "respect: refuse a disallowed path (default); warn: read it and mark compliance.robots_overridden; ignore: do not consult robots.txt.",
+                },
                 "input_gate": {
                     "type": "string",
                     "enum": ["off", "mark", "strict"],
@@ -70,6 +75,11 @@ _TOOLS: list[dict[str, Any]] = [
                     "type": "boolean",
                     "description": "Check robots.txt before fetching a result page (default true). Set false only for resources you are authorised to read.",
                 },
+                "robots_policy": {
+                    "type": "string",
+                    "enum": ["respect", "warn", "ignore"],
+                    "description": "respect: refuse a disallowed path (default); warn: read it and mark compliance.robots_overridden; ignore: do not consult robots.txt.",
+                },
                 "input_gate": {
                     "type": "string",
                     "enum": ["off", "mark", "strict"],
@@ -99,6 +109,11 @@ _TOOLS: list[dict[str, Any]] = [
                 "respect_robots": {
                     "type": "boolean",
                     "description": "Check robots.txt before fetching a page (default true). Set false only for resources you are authorised to read.",
+                },
+                "robots_policy": {
+                    "type": "string",
+                    "enum": ["respect", "warn", "ignore"],
+                    "description": "respect: refuse a disallowed path (default); warn: read it and mark compliance.robots_overridden; ignore: do not consult robots.txt.",
                 },
                 "input_gate": {
                     "type": "string",
@@ -181,6 +196,11 @@ _TOOLS: list[dict[str, Any]] = [
                     "type": "boolean",
                     "description": "Check robots.txt before fetching (default true).",
                 },
+                "robots_policy": {
+                    "type": "string",
+                    "enum": ["respect", "warn", "ignore"],
+                    "description": "respect: refuse a disallowed path (default); warn: read it and mark compliance.robots_overridden; ignore: do not consult robots.txt.",
+                },
                 "input_gate": {
                     "type": "string",
                     "enum": ["off", "mark", "strict"],
@@ -244,7 +264,7 @@ def _config(arguments: dict[str, Any]) -> engine.FetchConfig:
         include_tables=bool(arguments.get("include_tables", True)),
         cache=bool(arguments.get("cache", False)),
         num_results=int(arguments.get("num_results", 8)),
-        max_pages=max(1, int(arguments.get("max_pages", 3))),
+        max_pages=max(0, int(arguments.get("max_pages", 3))),
         search_pages=max(1, int(arguments.get("search_pages", 1))),
         search_engine=str(arguments.get("engine", "auto")),
         follow=str(arguments.get("follow", "same-site")),
@@ -252,6 +272,11 @@ def _config(arguments: dict[str, Any]) -> engine.FetchConfig:
         # it off explicitly, which is the same switch the CLI spells
         # --ignore-robots.
         respect_robots=bool(arguments.get("respect_robots", True)),
+        robots_policy=(
+            "ignore"
+            if not bool(arguments.get("respect_robots", True))
+            else str(arguments.get("robots_policy", "respect"))
+        ),
         proxy=str(arguments.get("proxy", "")),
         input_gate=str(arguments.get("input_gate", "mark")),
         verbose=False,
@@ -272,39 +297,11 @@ def _tool_search(arguments: dict[str, Any]) -> dict[str, Any]:
     if not arguments.get("query"):
         raise ValueError("query is required")
     config = _config(arguments)
-    query = str(arguments["query"])
-    engine_report: list[dict[str, Any]] = []
-    results = engine.search(
-        query,
+    payload = engine.fetch_by_query(
+        str(arguments["query"]),
         config,
         engine=str(arguments.get("engine", "auto")),
-        limit=config.num_results,
-        report=engine_report,
     )
-    pages: list[dict[str, Any]] = []
-    fetch_limit = int(arguments.get("max_pages", 3))
-    if fetch_limit > 0:
-        fetcher = engine.HttpFetcher(config)
-        try:
-            for result in results[:fetch_limit]:
-                try:
-                    pages.append(engine.fetch_page(result["url"], config, fetcher=fetcher))
-                except engine.WebForagerError as exc:
-                    pages.append({"url": result["url"], "error": f"{exc.__class__.__name__}: {exc}"})
-        finally:
-            fetcher.close()
-    payload: dict[str, Any] = {
-        "query": query,
-        "engine": str(arguments.get("engine", "auto")),
-        "search_results": results,
-        "engine_report": engine_report,
-        "pages": pages,
-    }
-    warnings = engine.search_warnings(
-        query, results, engine=str(arguments.get("engine", "auto"))
-    )
-    if warnings:
-        payload["warnings"] = warnings
     return engine.build_envelope("fetch", payload, full_results=_full_results(arguments))
 
 
@@ -528,10 +525,18 @@ def handle_request(request: dict[str, Any]) -> Optional[dict[str, Any]]:
                 code = "prohibited_query"
             elif code == "UnsafeAddress":
                 code = "unsafe_address"
+            elif code == "VerificationRequired":
+                code = "verification_required"
+            error: dict[str, Any] = {"code": code, "message": str(exc)}
+            if code == "verification_required":
+                error["hint"] = (
+                    "Retry in browser mode with playbook wechat-dig and a profile that "
+                    "has passed verification; web-forager does not solve challenges."
+                )
             text = json.dumps(
                 {
                     "ok": False,
-                    "error": {"code": code, "message": str(exc)},
+                    "error": error,
                 },
                 ensure_ascii=False,
             )

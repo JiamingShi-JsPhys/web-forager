@@ -39,6 +39,28 @@ def test_ignore_robots_flag_allows_private_path(site: str) -> None:
     assert "secret" in page["markdown"].lower()
 
 
+def test_robots_warn_reads_the_path_and_records_the_override(site: str) -> None:
+    page = engine.fetch_page(
+        f"{site}/private/secret.html", local_config(robots_policy="warn")
+    )
+    assert "secret" in page["markdown"].lower()
+    assert page["compliance"] == {
+        "robots_checked": True,
+        "robots_policy": "warn",
+        "robots_overridden": True,
+    }
+    assert any("robots.txt disallows" in warning for warning in page["warnings"])
+
+
+def test_allowed_page_records_a_clean_compliance_block(site: str) -> None:
+    page = engine.fetch_page(f"{site}/index.html", local_config())
+    assert page["compliance"] == {
+        "robots_checked": True,
+        "robots_policy": "respect",
+        "robots_overridden": False,
+    }
+
+
 def test_clean_table_page(site: str) -> None:
     page = engine.fetch_page(f"{site}/table.html", local_config())
     assert page["tables"][0]["headers"] == ["样本", "温度 / K", "压力 / kPa"]
@@ -52,3 +74,86 @@ def test_unknown_content_type_is_reported(tmp_path: object, site: str) -> None:
         handle.write(b"\x00\x01\x02")
     with pytest.raises(engine.FetchError):
         engine.HttpFetcher(local_config()).fetch(f"{site}/data.bin")
+
+
+class _ShellFetcher:
+    """Serve one tiny HTML shell without touching the network."""
+
+    def __init__(self, html: str) -> None:
+        self.html = html
+        self.closed = False
+
+    def assert_allowed(self, url: str) -> object:
+        class Policy:
+            crawl_delay = 0.0
+            note = ""
+            source = ""
+
+            def allowed(self, target: str) -> bool:
+                return True
+
+        return Policy()
+
+    def fetch(self, url: str) -> engine.HttpResponse:
+        return engine.HttpResponse(
+            url=url,
+            final_url=url,
+            status=200,
+            headers={"content-type": "text/html; charset=utf-8"},
+            content=self.html.encode("utf-8"),
+            text=self.html,
+            encoding="utf-8",
+            content_type="text/html",
+        )
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_minimal_html_shell_is_recognised() -> None:
+    assert engine.looks_like_html_shell(
+        '<html><body><script>location.href="/x"</script></body></html>'
+    )
+    assert not engine.looks_like_html_shell(
+        "<html><body><p>" + "ordinary text " * 40 + "</p></body></html>"
+    )
+
+
+def test_fetch_page_renders_a_minimal_html_shell(monkeypatch: pytest.MonkeyPatch) -> None:
+    shell = '<html><body><script>location.href="/x"</script></body></html>'
+    rendered = (
+        "<html><head><title>Article</title></head><body><p>"
+        + "Rendered body. " * 60
+        + "</p></body></html>"
+    )
+    monkeypatch.setattr(engine, "render_html", lambda url, config: rendered)
+
+    page = engine.fetch_page(
+        "https://example.org/shell", local_config(render="auto"), fetcher=_ShellFetcher(shell)
+    )
+
+    assert page["rendered"] is True
+    assert page["render_fallback"] is True
+    assert "Rendered body" in page["markdown"]
+    assert any("minimal HTML shell" in warning for warning in page["warnings"])
+
+
+def test_render_fallback_can_be_switched_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    shell = '<html><body><script>location.href="/x"</script></body></html>'
+    called = {"count": 0}
+
+    def fake_render(url: str, config: engine.FetchConfig) -> str:
+        called["count"] += 1
+        return ""
+
+    monkeypatch.setattr(engine, "render_html", fake_render)
+    fetcher = _ShellFetcher(shell)
+
+    with pytest.raises(engine.ExtractionError):
+        engine.fetch_page(
+            "https://example.org/shell",
+            local_config(render="auto"),
+            fetcher=fetcher,
+            allow_render_fallback=False,
+        )
+    assert called["count"] == 0

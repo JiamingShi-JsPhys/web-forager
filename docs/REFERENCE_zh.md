@@ -36,6 +36,7 @@ npm install playwright && npx playwright install chromium
 node browser/run.js --doctor
 node browser/run.js --playbook bili-feed --session bili-01 --max-items 8 --agent
 node browser/run.js --playbook zhihu-dig --query "强化学习" --agent
+node browser/run.js --playbook wechat-dig --url "https://mp.weixin.qq.com/s/..." --agent
 ```
 
 | 剧本 | 作用 | 需要 |
@@ -47,8 +48,13 @@ node browser/run.js --playbook zhihu-dig --query "强化学习" --agent
 | `zhihu-dig` | 搜知乎、排序链接、捕捉最佳未见页面 | `--query` |
 | `xhs-dig` | 搜小红书公开笔记、排序 `/explore` 链接、捕捉一条 | `--query` |
 | `search-dig` | 搜 B 站、排序卡片、打开最佳未见结果 | `--query` |
+| `wechat-dig` | 单篇公众号文章；遇到环境校验页就如实报告，不把错误页当正文 | `--url` |
+
+公众号是 HTTP 模式唯一走不完的一类：`mp.weixin.qq.com` 在 robots.txt 里禁止 `/s`，即使加 `--robots-policy warn`，文章 URL 也会返回「环境异常」或跳转到验证码页，而不是正文；HTTP 记录会写成 `verification_required`（退出码 9），不会把错误页当成内容交出去。`wechat-dig` 在真实浏览器配置里打开同一个 URL：该配置已通过微信校验时能读到正文，没通过时报告 `blocked`，不会去解验证码。
 
 装好 `playwright` 与它的 Chromium 后，自带的桥会被自动启用；`--bridge` 或 `WEB_FORAGER_BRIDGE` 用于指向别处的桥。命令按空白拆分后直接启动，不经过 shell——路径含空格时加引号，参数照常写；管道、`&&` 与重定向不会被解释。`WEB_FORAGER_BROWSER_HEADFUL=1` 显示窗口；`WEB_FORAGER_BROWSER_PROFILE=/path` 复用持久化配置目录（`extension` 后端的登录态正是靠它保留）；`WEB_FORAGER_BROWSER_CDP=http://127.0.0.1:9222` 接管你已有的浏览器（`cdp`）。桥通过可选的 `describe` 调用声明自己实现了什么；不实现 `describe` 的桥会被标记为 `declared: false`，所有能力一律为 false。
+
+登录一次的做法：运行 `python browser/launch_chrome.py`（默认使用 `~/.web-forager/browser/profile`，会打印 `WEB_FORAGER_BROWSER_CDP` 的值，支持 `--dry-run`），然后给剧本加 `--backend cdp`。`--storage-state FILE` 在运行前载入 Playwright 状态文件；`--save-storage-state FILE` 在运行后写出，权限为 `0600`，路径落在 `--root` 内会被拒绝。这个文件包含 Cookie 与登录态：按凭据对待，不要提交进 git，也不要复制到共享机器。
 
 `--strict-robots` 在每次导航前读取 `robots.txt`，被禁止的路径以 `robots_denied`（退出码 3）停下。不加这个开关时记录同样说清楚：`compliance.robots_checked` 为 `false`。读到了页面却什么也没找到会报告 `degraded`（退出码 8）并附上记录；反爬或错误页以 `blocked`（退出码 9）停下；站点要求登录是 `login_required`（退出码 6）。
 
@@ -122,8 +128,12 @@ python run.py --action bili --mode feed --max-items 10
 | `metadata`、`markdown`、`tables`、`warnings` | 有 | 有 |
 | `trust`、`injection_flags` | 有 | 有 |
 | `url`、`title` | 有（`url` 与 `final_url`） | 有 |
-| `status`、`content_type`、`document_kind`、`cached`、`rendered`、`fetched_at`、`chunks`、`links` | 有 | 无 |
+| `status`、`content_type`、`document_kind`、`cached`、`rendered`、`render_fallback`、`fetched_at`、`chunks`、`links` | 有 | 无 |
 | `schema_version`、`captured_at`、`playbook`、`backend`、`compliance`、`viewport_evidence`、`interaction_trace` | 无 | 有 |
+
+`render_fallback` 为 `true` 表示服务器只返回了极小的脚本壳，HTTP 模式在抽取前用 Playwright 重渲染了一次。`fetch --query` 每次最多允许两次这样的重渲染，每次会多花数秒。
+
+搜索结果按查询覆盖度、标题命中、域名先验、摘要时效与引擎顺序排序；最终列表每个域名最多两条，避免单一站点挤掉其他来源；来源不足时再用溢出的结果补满。首轮结果过少时会用简化查询重试一次（去掉引号与常见停用词，或把带空格的中文查询合并），重试会在 `engine_report` 里标 `query_variant`。
 
 加 `--core` 时返回共享形状：
 
@@ -190,6 +200,7 @@ python run.py --action fetch --url "https://example.org/article" --root <WS>
 | 5 | 抽取或捕捉失败 |
 | 6 | 请求了 Playwright 但不可用 |
 | 7 | 处理 PDF 但 `pypdf` 不可用 |
+| 9 | 返回的是验证页或反爬页而不是内容（HTTP 模式为 `verification_required`，浏览器模式为 `blocked`） |
 | 130 | 被中断 |
 
 浏览器模式沿用这张表，只改写或新增以下含义：
@@ -242,10 +253,10 @@ web-forager/
 ├── run.py                        CLI：九个动作
 ├── mcp_server.py                 MCP stdio 服务（10 个 HTTP 工具）
 ├── browser/                      浏览器模式（Node 18+）
-│   ├── run.js                    CLI：七个只读剧本
+│   ├── run.js                    CLI：八个只读剧本
 │   ├── mcp_server.js             MCP stdio 服务（4 个浏览器工具）
 │   ├── lib/                      桥后端、会话、记录、安全门禁、选择器、robots、快照
-│   ├── playbooks/                bili-* / zhihu-dig / xhs-dig / search-dig
+│   ├── playbooks/                bili-* / zhihu-dig / xhs-dig / search-dig / wechat-dig
 │   ├── bridges/                  可选 Playwright 参考桥
 │   └── tests/                    假后端、真实页面快照、live 冒烟
 ├── SKILL.md                      Claude Code 技能契约

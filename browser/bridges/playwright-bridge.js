@@ -57,6 +57,24 @@ const SNAPSHOT_SCRIPT = () => {
     nodes.push(node);
   };
   const scope = document.body || document.documentElement;
+  // WeChat renders the whole article inside #js_content. Hand it over as one
+  // node so the caller does not have to reassemble paragraph fragments; kept
+  // to WeChat so link/card detection on other sites is unchanged.
+  const pushContent = (el) => {
+    if (!el || !visible(el)) return;
+    const text = (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim();
+    if (text.length < 80) return;
+    const id = String(++seq);
+    el.setAttribute("data-web-forager-browser-id", id);
+    nodes.push({
+      role: "content",
+      name: text.slice(0, 20000),
+      locator: `[data-web-forager-browser-id="${id}"]`,
+    });
+  };
+  if (/(^|\.)weixin\.qq\.com$/i.test(location.hostname)) {
+    pushContent(document.querySelector("#js_content"));
+  }
   for (const el of scope.querySelectorAll("h1,h2,h3,h4")) push("heading", el);
   for (const el of scope.querySelectorAll("a[href]")) push("link", el);
   for (const el of scope.querySelectorAll("button,[role=button]")) push("button", el);
@@ -110,6 +128,7 @@ async function installNetGuard(active) {
 
 async function start() {
   if (context) return;
+  const storageState = process.env.WEB_FORAGER_STORAGE_STATE || undefined;
   if (process.env.WEB_FORAGER_BROWSER_CDP) {
     browser = await playwright.chromium.connectOverCDP(process.env.WEB_FORAGER_BROWSER_CDP);
     context = browser.contexts()[0] || (await browser.newContext());
@@ -123,12 +142,19 @@ async function start() {
   const profile = profilePath();
   if (profile) {
     fs.mkdirSync(profile, { recursive: true });
-    context = await playwright.chromium.launchPersistentContext(profile, { headless, ...LAUNCH_OPTIONS });
+    context = await playwright.chromium.launchPersistentContext(profile, {
+      headless,
+      ...(storageState ? { storageState } : {}),
+      ...LAUNCH_OPTIONS,
+    });
     await installNetGuard(context);
     return;
   }
   browser = await playwright.chromium.launch({ headless, ...LAUNCH_OPTIONS });
-  context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  context = await browser.newContext({
+    viewport: { width: 1280, height: 900 },
+    ...(storageState ? { storageState } : {}),
+  });
   await installNetGuard(context);
 }
 
@@ -288,7 +314,21 @@ function describe() {
   };
 }
 
-const METHODS = { describe, goto, snapshot, click, scroll, screenshot, tabs, url: currentUrl, observe };
+async function storageState(params) {
+  await start();
+  const target = params.path ? String(params.path) : "";
+  const state = await context.storageState(target ? { path: target } : {});
+  // Never return the cookie values themselves; the caller only needs to know
+  // that the file was written.
+  return {
+    saved: Boolean(target),
+    path: target,
+    cookies: Array.isArray(state.cookies) ? state.cookies.length : 0,
+    origins: Array.isArray(state.origins) ? state.origins.length : 0,
+  };
+}
+
+const METHODS = { describe, goto, snapshot, click, scroll, screenshot, tabs, url: currentUrl, observe, storage_state: storageState };
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);

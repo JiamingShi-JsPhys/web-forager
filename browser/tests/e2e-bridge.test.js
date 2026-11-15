@@ -29,8 +29,7 @@ function run(args) {
   return { status: result.status, payload: line ? JSON.parse(line) : null, stderr: result.stderr };
 }
 
-test("the CLI runs a playbook end to end through the bridge protocol", () => {
-  const result = run([
+test("the CLI runs a playbook end to end through the bridge protocol", () => {  const result = run([
     "--playbook",
     "bili-video",
     "--url",
@@ -82,4 +81,28 @@ test("an unknown backend exits 2", () => {
   const result = run(["--playbook", "bili-feed", "--backend", "selenium", "--agent"]);
   assert.equal(result.status, 2);
   assert.equal(result.payload.error.code, "argument");
+});
+
+test("--save-storage-state writes the state and reports it", () => {
+  const target = path.join(HOME, "state.json");
+  fs.rmSync(target, { force: true });
+  const result = run([
+    "--playbook",
+    "bili-video",
+    "--url",
+    "https://www.bilibili.com/video/BV1aa411c7mD",
+    "--session",
+    "e2e-state",
+    "--comment-scrolls",
+    "0",
+    "--min-interval",
+    "0",
+    "--save-storage-state",
+    target,
+    "--agent",
+  ]);
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.payload.data.storage_state.saved, true);
+  assert.ok(fs.existsSync(target), "the state file is written");
 });

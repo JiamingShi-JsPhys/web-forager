@@ -8,6 +8,7 @@ const playbooks = {
   "zhihu-dig": require("../playbooks/zhihu-dig"),
   "xhs-dig": require("../playbooks/xhs-dig"),
   "search-dig": require("../playbooks/search-dig"),
+  "wechat-dig": require("../playbooks/wechat-dig"),
 };
 
 function getPlaybook(name) {

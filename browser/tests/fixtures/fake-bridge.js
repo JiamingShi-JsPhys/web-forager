@@ -5,6 +5,8 @@
 // line-delimited JSON-RPC 2.0 protocol as bridges/playwright-bridge.js, with
 // deterministic pages, so the CLI can be exercised end to end without Chrome.
 
+const fs = require("node:fs");
+
 const PAGES = {
   video: {
     title: "测试视频",
@@ -79,6 +81,13 @@ const METHODS = {
   },
   async scroll() {
     return { ok: true };
+  },
+  async storage_state(params) {
+    const target = params && params.path ? String(params.path) : "";
+    if (target) {
+      fs.writeFileSync(target, JSON.stringify({ cookies: [], origins: [] }));
+    }
+    return { saved: Boolean(target), path: target, cookies: 0, origins: 0 };
   },
   async screenshot() {
     return { path: "" };

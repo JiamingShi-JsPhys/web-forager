@@ -13,7 +13,7 @@ claude plugin install web-forager --marketplace https://github.com/JiamingShi-Js
 **Claude Code** — from inside a session (v2.1.275+), add the marketplace from the URL first, pinned to the release tag:
 
 ```text
-/plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git#v1.2.3
+/plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git#v1.3.0
 ```
 
 Then install the entry it lists:
@@ -25,7 +25,7 @@ Then install the entry it lists:
 **Codex** — register the URL as a Git marketplace; `--ref` pins the release tag, and an SSH URL or a local path works in place of the HTTPS one:
 
 ```bash
-codex plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git --ref v1.2.3
+codex plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git --ref v1.3.0
 ```
 
 **Codex** — install the plugin from that marketplace:
@@ -37,13 +37,13 @@ codex plugin add web-forager@web-forager-marketplace
 **dsh (DeepSeek Harness)** — installs from the same repository URL straight into a profile:
 
 ```bash
-dsh plugin --profile web add github:JiamingShi-JsPhys/web-forager#v1.2.3
+dsh plugin --profile web add github:JiamingShi-JsPhys/web-forager#v1.3.0
 ```
 
 **CodeBuddy** — add the URL as a Git marketplace:
 
 ```text
-/plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git#v1.2.3
+/plugin marketplace add https://github.com/JiamingShi-JsPhys/web-forager.git#v1.3.0
 ```
 
 Then install the entry it lists:

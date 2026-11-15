@@ -1,6 +1,6 @@
 ---
 name: web-forager
-version: 1.2.3
+version: 1.3.0
 description: >
   Polite, robots-aware web information gathering with two modes. HTTP mode
   searches 360/Bing/Sogou/WeChat, reads HTML/PDF/DOCX/XLSX/EPUB/CSV and RSS/Atom,
@@ -8,12 +8,12 @@ description: >
   other sites as ordinary pages, discovers sitemaps, chunks long Markdown,
   caches responses, and surfs the web link by link with resumable sessions.
   Browser mode drives a real browser through a bridge for login-state pages,
-  rendered content, danmaku and seven read-only playbooks covering Bilibili,
+  rendered content, danmaku and eight read-only playbooks covering Bilibili,
   Zhihu and Xiaohongshu. Optional scholarly lookups cover
   arXiv/Crossref/PubMed/DOI. Ships a CLI, an OpenCLI-style --agent envelope and
   two stdio MCP servers.
 metadata:
-  version: 1.2.3
+  version: 1.3.0
   author: Jiaming Shi
   license: MIT
   entry_point: python run.py
@@ -44,6 +44,8 @@ and (optional) `playwright` / `pypdf` are used. No GPL/AGPL dependency.
 > `pip install playwright && playwright install chromium`。
 > 未安装时 `--render auto` 会跳过渲染并在 `warnings` 中说明；`--render always`
 > 会以**退出码 6**优雅报错，不会抛 Python Traceback。
+> 服务器只返回脚本壳时，`--render auto` 会在抽取前重渲染一次；`--query`
+> 每次最多两页，每页约多花 5–20 秒，记录里写 `render_fallback: true`。
 
 > **启用 PDF：** 用户需自行运行 `pip install pypdf`。未安装时 PDF 请求以
 > **退出码 7** 报错并提示安装命令，不会抛 Python Traceback。
@@ -178,6 +180,9 @@ node browser/run.js --playbook bili-danmaku --url "https://www.bilibili.com/vide
 node browser/run.js --playbook zhihu-dig --query "<KEYWORDS>" --agent
 node browser/run.js --playbook xhs-dig --query "<KEYWORDS>" --agent
 
+# one WeChat article, in a profile that has passed WeChat's check
+node browser/run.js --playbook wechat-dig --url "<ARTICLE_URL>" --agent
+
 # plan without a browser
 node browser/run.js --playbook bili-feed --dry-run
 
@@ -190,9 +195,11 @@ Backends are labels only (`--backend iab|extension|cdp`); the bridge declares
 its real capabilities. Without a bridge, a live run exits 3. `zhihu-dig` and
 `xhs-dig` return `login_required` (exit 6) when a platform shows a login wall.
 An empty feed or search reports `degraded` (exit 8) with the records attached;
-an anti-bot page reports `blocked` (exit 9). `--strict-robots` checks
-`robots.txt` before every navigation, and every record states whether that
-check was made (`compliance.robots_checked`).
+an anti-bot page reports `blocked` (exit 9). `wechat-dig` reports `blocked`
+when the profile has not passed WeChat's environment check; HTTP mode reports
+the same wall as `verification_required`. Neither path solves a challenge.
+`--strict-robots` checks `robots.txt` before every navigation, and every record
+states whether that check was made (`compliance.robots_checked`).
 
 Browser sessions live in `~/.web-forager/browser/sessions/` (override with
 `WEB_FORAGER_BROWSER_HOME`). With `--root <WS>`, records land in
@@ -256,7 +263,8 @@ Browser sessions live in `~/.web-forager/browser/sessions/` (override with
 | `--follow same-site\|all\|none` | `same-site` | surf link policy |
 | `--session NAME` | off | resumable surf session (`~/.web-forager/sessions/`) |
 | `--direct-search` | off | explicit override for `search.bilibili.com` only |
-| `--ignore-robots` | off | **dangerous**; only for authorised resources |
+| `--robots-policy respect\|warn\|ignore` | `respect` | `respect` refuses a disallowed path; `warn` reads it and marks the override; `ignore` skips the check |
+| `--ignore-robots` | off | **dangerous**; same as `--robots-policy ignore`, only for authorised resources |
 
 ## Compliance guardrails
 
@@ -265,9 +273,14 @@ Browser sessions live in `~/.web-forager/browser/sessions/` (override with
 - `401/403/5xx` or an unreachable robots.txt → conservative deny.
 - Every request carries an explicit information-gathering User-Agent; override it with
   `--user-agent` so you are contactable.
-- Per-origin rate limiting; no concurrency fan-out.
+- Per-origin rate limiting remains in force; engines on different hosts may run
+  at the same time, but pages, surf, sitemap and scholarly calls are not fanned
+  out.
 - Max 5 redirects, 8 MB response cap, http/https only.
-- Exit code `3` means robots.txt denied the request — respect it.
+- Exit code `3` means robots.txt denied the request. Respect it: do not silently
+  re-fetch with a tool that ignores robots. Use `--robots-policy warn` only when
+  the user has authorised the resource; the record then carries
+  `compliance.robots_overridden: true`.
 - PDF text extraction requires `pypdf`; without it, exit code `7` is returned.
 - DOCX/XLSX/EPUB archives are capped by entry count and uncompressed size;
   XML is parsed with defusedxml when available, and DOCTYPE internal subsets /
@@ -303,7 +316,10 @@ Two switches keep a search cheap: `max_pages: 0` returns the result list with
 no page bodies (fetch one with `web_fetch` and a small `max_chars`), and
 `respect_robots: false` reads a page robots.txt disallows — only for resources
 you are authorised to read. A search whose results do not mention the query
-comes back with a `warnings` entry saying so.
+comes back with a `warnings` entry saying so. Results are ranked by coverage,
+title match, a small domain prior and snippet freshness, and the list keeps at
+most two per host (filling from the overflow when too few hosts answered); a
+thin first pass is retried once with a simplified query.
 
 Browser runs cost far more than HTTP reads; keep them small:
 

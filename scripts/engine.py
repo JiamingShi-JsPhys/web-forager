@@ -39,6 +39,7 @@ import threading
 import time
 import urllib.parse
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -50,7 +51,7 @@ from bs4.element import NavigableString, Tag
 
 from . import untrusted
 
-__version__ = "1.2.3"
+__version__ = "1.3.0"
 
 DEFAULT_USER_AGENT = (
     f"WebForager/{__version__} (Information Gathering; "
@@ -85,6 +86,15 @@ class FetchError(WebForagerError):
 
 class ExtractionError(WebForagerError):
     """No readable content could be extracted from the document."""
+
+
+class VerificationRequired(WebForagerError):
+    """The site answered with a verification or anti-bot page, not content.
+
+    HTTP mode cannot pass these interstitials: doing so would mean solving a
+    challenge, which this tool does not do.  Browser mode may succeed when the
+    page is readable in a real profile that has already passed verification.
+    """
 
 
 class RenderUnavailable(WebForagerError):
@@ -163,6 +173,9 @@ class FetchConfig:
     max_bytes: int = 8 * 1024 * 1024
     max_chars: int = 20_000
     respect_robots: bool = True
+    # respect: refuse a disallowed path; warn: read it and mark the record;
+    # ignore: do not consult robots.txt (same as respect_robots=False).
+    robots_policy: str = "respect"
     render: str = "auto"          # auto | never | always
     include_tables: bool = True
     keep_links: bool = False
@@ -175,6 +188,9 @@ class FetchConfig:
     follow: str = "same-site"      # same-site | all | none
     search_engine: str = "auto"
     search_pages: int = 1
+    # Engines are different hosts, so they may run at once without breaking the
+    # per-origin delay. Set False for a strictly serial diagnostic run.
+    parallel_engines: bool = True
     cache: bool = False
     cache_ttl: int = 3600
     cache_dir: str = ""
@@ -190,6 +206,8 @@ class FetchConfig:
     def validate(self) -> None:
         if self.render not in ("auto", "never", "always"):
             raise ValueError("render must be auto, never or always")
+        if self.robots_policy not in ("respect", "warn", "ignore"):
+            raise ValueError("robots_policy must be respect, warn or ignore")
         if self.input_gate not in ("off", "mark", "strict"):
             raise ValueError("input_gate must be off, mark or strict")
         if self.follow not in ("same-site", "all", "none"):
@@ -865,12 +883,18 @@ class HttpFetcher:
     # -- robots ---------------------------------------------------------
 
     def assert_allowed(self, url: str) -> RobotsPolicy:
-        """Raise RobotsDenied when robots.txt forbids ``url``."""
+        """Raise RobotsDenied when policy is ``respect`` and robots forbids it.
 
-        if not self.config.respect_robots:
-            return RobotsPolicy.allowing_all(note="robots checking disabled by --ignore-robots")
+        ``warn`` returns the denying policy instead of raising, so the caller
+        can still read the page and must record ``robots_overridden: true``.
+        """
+
+        if not self.config.respect_robots or self.config.robots_policy == "ignore":
+            return RobotsPolicy.allowing_all(note="robots checking disabled by policy")
         policy = self.robots.policy_for(url)
         if not policy.allowed(url):
+            if self.config.robots_policy == "warn":
+                return policy
             detail = policy.note or policy.source or "robots.txt"
             raise RobotsDenied(f"robots.txt disallows {url} ({detail})")
         return policy
@@ -1272,6 +1296,36 @@ def looks_like_character_page(title: str, query: str) -> bool:
     return any(marker in title_text for marker in _CHARACTER_PAGE_MARKERS)
 
 
+_DICTIONARY_MARKERS = (
+    "词典",
+    "翻译",
+    "音标",
+    "是什么意思",
+    "英语单词",
+    "汉语词典",
+    "dictionary",
+    "translation",
+)
+
+
+def looks_like_dictionary_page(result: dict[str, str], query: str) -> bool:
+    """True for a word page that matches only one token of a longer query.
+
+    Bing occasionally answers a Latin phrase with the dictionary entry of its
+    first word (``reinforcement`` for ``reinforcement learning survey``). The
+    page is not wrong, but it is not an answer to the query; dropping it lets
+    the next result through instead of filling the list with word pages.
+    """
+
+    tokens = _query_tokens(query)
+    if len(tokens) < 2:
+        return False
+    title = (result.get("title") or "").lower()
+    if not any(marker in title for marker in _DICTIONARY_MARKERS):
+        return False
+    return result_coverage(result, tokens) <= 1 / len(tokens)
+
+
 _DOXXING_PHRASES = (
     "人肉搜索",
     "人肉",
@@ -1445,41 +1499,64 @@ def search(
 
     own_fetcher = fetcher is None
     fetcher = fetcher or HttpFetcher(config)
+    parallel = own_fetcher and config.parallel_engines
     groups: list[tuple[str, list[dict[str, str]]]] = []
     errors: list[str] = []
 
-    def collect(names: list[str], fallback: bool = False) -> None:
-        for name in names:
-            started = time.monotonic()
-            entry: dict[str, Any] = {"engine": name}
-            if fallback:
-                entry["fallback"] = True
-            try:
-                items = _search_one(
-                    name, query, config, limit, fetcher, pages=config.search_pages
-                )
-                # An engine that split a Chinese phrase into characters returns
-                # the dictionary page of the first one; drop it before it can
-                # pad the list or inflate the per-engine count.
-                items = [
-                    item
-                    for item in items
-                    if not looks_like_character_page(item.get("title", ""), query)
-                ]
-                groups.append((name, items))
-                entry.update(
-                    ok=True,
-                    results=len(items),
-                    ms=round((time.monotonic() - started) * 1000),
-                )
-            except Exception as exc:  # one engine failing must not kill the query
-                errors.append(f"{name}: {exc}")
-                entry.update(
-                    ok=False,
-                    results=0,
-                    error=str(exc),
-                    ms=round((time.monotonic() - started) * 1000),
-                )
+    def run_engine(
+        name: str, fallback: bool, qtext: str = query
+    ) -> tuple[dict[str, Any], Optional[list[dict[str, str]]]]:
+        started = time.monotonic()
+        entry: dict[str, Any] = {"engine": name}
+        if fallback:
+            entry["fallback"] = True
+        if qtext != query:
+            entry["query_variant"] = qtext
+        # A requests.Session is not safe to share across engine threads. Each
+        # engine gets its own fetcher; the disk cache and per-host limiters are
+        # still shared through the filesystem and the host split.
+        local = HttpFetcher(config) if parallel else fetcher
+        try:
+            items = _search_one(
+                name, qtext, config, limit, local, pages=config.search_pages
+            )
+            # An engine that split a Chinese phrase into characters returns
+            # the dictionary page of the first one; drop it before it can
+            # pad the list or inflate the per-engine count.
+            items = [
+                item
+                for item in items
+                if not looks_like_character_page(item.get("title", ""), query)
+                and not looks_like_dictionary_page(item, query)
+            ]
+            entry.update(
+                ok=True,
+                results=len(items),
+                ms=round((time.monotonic() - started) * 1000),
+            )
+            return entry, items
+        except Exception as exc:  # one engine failing must not kill the query
+            errors.append(f"{name}: {exc}")
+            entry.update(
+                ok=False,
+                results=0,
+                error=str(exc),
+                ms=round((time.monotonic() - started) * 1000),
+            )
+            return entry, None
+        finally:
+            if parallel:
+                local.close()
+
+    def collect(names: list[str], fallback: bool = False, qtext: str = query) -> None:
+        if parallel and len(names) > 1:
+            with ThreadPoolExecutor(max_workers=len(names)) as pool:
+                outcomes = list(pool.map(lambda n: run_engine(n, fallback, qtext), names))
+        else:
+            outcomes = [run_engine(name, fallback, qtext) for name in names]
+        for entry, items in outcomes:
+            if items is not None:
+                groups.append((entry["engine"], items))
             if report is not None:
                 report.append(entry)
 
@@ -1487,6 +1564,13 @@ def search(
         collect(engines)
         if fallback_engines and (not groups or _thin_results(groups, limit)):
             collect(fallback_engines, fallback=True)
+        # A thin first pass is often a formatting mismatch rather than a
+        # missing topic. One simplified variant costs two or three more
+        # requests and is skipped entirely when the first pass was healthy, or
+        # when the caller pinned a single engine on purpose.
+        if groups and engine in ("auto", "all") and _thin_results(groups, limit):
+            for variant in query_variants(query)[1:]:
+                collect(engines, fallback=True, qtext=variant)
     finally:
         if own_fetcher:
             fetcher.close()
@@ -1498,7 +1582,9 @@ def search(
         merged = groups[0][1]
     else:
         merged = merge_search_results(groups, query, limit=limit)
-    return dedupe_results(merged, limit=limit)
+    return diversify_results(
+        dedupe_results(merged, limit=max(limit * 3, limit)), limit=limit
+    )
 
 
 def _thin_results(groups: list[tuple[str, list[dict[str, str]]]], limit: int) -> bool:
@@ -1513,6 +1599,22 @@ def _thin_results(groups: list[tuple[str, list[dict[str, str]]]], limit: int) ->
         [item for _, group in groups for item in group], limit=max(limit, 3)
     )
     return len(items) < min(limit, 3)
+
+
+def is_360_blocked(html: str) -> bool:
+    """True when so.com answered with a verification page instead of results.
+
+    The page is small and has no result list; a real result page always carries
+    ``res-list``. Only used to report the engine honestly, never to retry past
+    the check.
+    """
+
+    lowered = (html or "").lower()
+    if not lowered or "res-list" in lowered or len(html) > 60000:
+        return False
+    if any(marker in html for marker in ("安全验证", "人机验证", "请输入验证码", "访问异常", "滑动验证")):
+        return True
+    return "验证" in html and len(html) < 12000
 
 
 def _search_one(
@@ -1534,6 +1636,8 @@ def _search_one(
             response = fetcher.fetch(
                 _SO_360.format(query=quoted, page=page), check_robots=False
             )
+            if is_360_blocked(response.text):
+                raise FetchError("360 returned a verification page; wait and retry later")
             found = parse_360_html(response.text, limit=limit)
         elif name == "sogou":
             response = fetcher.fetch(
@@ -1601,22 +1705,176 @@ def result_coverage(result: dict[str, str], tokens: list[str]) -> float:
     return sum(1 for token in tokens if token in haystack) / len(tokens)
 
 
+_HIGH_VALUE_SUFFIXES = (
+    "docs.python.org",
+    "developer.mozilla.org",
+    "wikipedia.org",
+    "arxiv.org",
+    "github.com",
+    "stackoverflow.com",
+    "nature.com",
+    "science.org",
+    "who.int",
+    "worldbank.org",
+    "gov.cn",
+    "edu.cn",
+    "ac.uk",
+    "edu",
+)
+_LOW_VALUE_SUFFIXES = (
+    "doc88.com",
+    "docin.com",
+    "wenku.baidu.com",
+    "360doc.com",
+    "book118.com",
+)
+
+
+def _host_prior(host: str) -> float:
+    """A small prior for domains that usually answer a query well.
+
+    It only breaks ties and nudges; query coverage carries most of the score,
+    so a content farm with the exact answer still outranks an off-topic paper.
+    """
+
+    host = (host or "").lower()
+    for suffix in _HIGH_VALUE_SUFFIXES:
+        if host == suffix or host.endswith("." + suffix):
+            return 0.08
+    for suffix in _LOW_VALUE_SUFFIXES:
+        if host == suffix or host.endswith("." + suffix):
+            return -0.08
+    return 0.0
+
+
+def _freshness_bonus(text: str) -> float:
+    """Prefer results whose snippet carries a recent year."""
+
+    years = [int(match) for match in re.findall(r"\b(20\d{2})\b", text or "")]
+    if not years:
+        return 0.0
+    newest = max(years)
+    current = datetime.now(timezone.utc).year
+    if newest >= current:
+        return 0.06
+    if newest == current - 1:
+        return 0.03
+    return 0.0
+
+
+def query_variants(query: str) -> list[str]:
+    """Return the original query and at most one simplified variant.
+
+    Only used when the first pass came back thin. It strips quotes and common
+    English stopwords, and joins a spaced CJK query, because result pages treat
+    those two forms differently.
+    """
+
+    base = (query or "").strip()
+    if not base:
+        return []
+    variants = [base]
+    simplified = re.sub(r"[\"'“”‘’]", " ", base)
+    simplified = re.sub(r"[\s,，;；|、]+", " ", simplified).strip()
+    tokens = [
+        token
+        for token in simplified.split()
+        if token.lower() not in _QUERY_STOPWORDS
+    ]
+    candidate = " ".join(tokens).strip()
+    if candidate and candidate.lower() != base.lower():
+        variants.append(candidate)
+    if re.search(r"[㐀-鿿]", base) and " " in base:
+        joined = re.sub(r"\s+", "", base)
+        if joined and joined not in variants:
+            variants.append(joined)
+    return variants[:2]
+
+
+_QUERY_STOPWORDS = {
+    "a",
+    "an",
+    "the",
+    "of",
+    "for",
+    "to",
+    "in",
+    "on",
+    "and",
+    "or",
+    "with",
+    "about",
+    "please",
+    "如何",
+    "怎么",
+    "什么",
+    "怎样",
+}
+
+
+def diversify_results(
+    results: list[dict[str, str]], limit: int, per_host: int = 2
+) -> list[dict[str, str]]:
+    """Keep at most ``per_host`` results per host, then fill from the overflow.
+
+    A single host that dominates the list (WeChat, one content farm) no longer
+    crowds out every other source; if too few hosts answered, the overflow is
+    appended so the caller still receives ``limit`` results.
+    """
+
+    chosen: list[dict[str, str]] = []
+    overflow: list[dict[str, str]] = []
+    counts: dict[str, int] = {}
+    for item in results:
+        host = (urllib.parse.urlsplit(item.get("url", "")).netloc or "").lower()
+        if counts.get(host, 0) < per_host:
+            counts[host] = counts.get(host, 0) + 1
+            chosen.append(item)
+        else:
+            overflow.append(item)
+    return (chosen + overflow)[:limit]
+
+
 def merge_search_results(
     groups: list[tuple[str, list[dict[str, str]]]],
     query: str,
     limit: int = 8,
 ) -> list[dict[str, str]]:
-    """Merge several engines: best query coverage first, engine order breaks ties."""
+    """Merge several engines by coverage, title match, domain prior and freshness.
+
+    Engine order only breaks exact ties, so two engines that return the same
+    page still produce one stable ordering.
+    """
 
     tokens = _query_tokens(query)
+    phrase = " ".join((query or "").lower().split())
     scored: list[tuple[float, int, int, dict[str, str]]] = []
     for group_index, (name, items) in enumerate(groups):
         for rank, item in enumerate(items):
             candidate = dict(item)
             candidate.setdefault("source", name)
-            scored.append((result_coverage(candidate, tokens), group_index, rank, candidate))
+            coverage = result_coverage(candidate, tokens)
+            title = (candidate.get("title") or "").lower()
+            title_hits = (
+                sum(1 for token in tokens if token in title) / len(tokens)
+                if tokens
+                else 0.0
+            )
+            exact = 0.1 if phrase and phrase in title else 0.0
+            host = urllib.parse.urlsplit(candidate.get("url", "")).netloc
+            score = (
+                coverage * 0.55
+                + title_hits * 0.2
+                + exact
+                + _host_prior(host)
+                + _freshness_bonus(
+                    f"{candidate.get('title', '')} {candidate.get('snippet', '')}"
+                )
+            )
+            scored.append((score, group_index, rank, candidate))
     scored.sort(key=lambda entry: (-entry[0], entry[1], entry[2]))
     return [entry[3] for entry in scored[: max(limit * 3, limit)]]
+
 
 
 def parse_360_html(html: str, limit: int = 8) -> list[dict[str, str]]:
@@ -2010,6 +2268,22 @@ def visible_text(html: str) -> str:
     for tag in soup(list(_SKIP_TAGS)):
         tag.decompose()
     return re.sub(r"\s+", " ", soup.get_text(" ", strip=True)).strip()
+
+
+def looks_like_html_shell(html: str) -> bool:
+    """A tiny HTML document whose body is a script, cookie check or redirect.
+
+    php.cn and similar sites answer a plain HTTP request with a few dozen bytes
+    that only a browser can resolve; without this, extraction reports an empty
+    page even though the rendered page is readable.
+    """
+
+    if not html or len(html) > 4000:
+        return False
+    if len(visible_text(html)) >= 120:
+        return False
+    lowered = html.lower()
+    return "<script" in lowered or "location" in lowered or "window." in lowered
 
 
 def looks_dynamic(html: str) -> bool:
@@ -2864,6 +3138,7 @@ def surf_web(
     trail: list[dict[str, Any]] = list(session_data.get("trail", []))
     pages: list[dict[str, Any]] = []
     search_results: list[dict[str, str]] = []
+    render_fallbacks = 0
 
     seed_text = str(seed or "").strip()
     if not seed_text:
@@ -2888,7 +3163,17 @@ def surf_web(
                 continue
             visited.add(url)
             try:
-                page = fetch_page(url, config, fetcher=fetcher, query=query)
+                page = fetch_page(
+                    url,
+                    config,
+                    fetcher=fetcher,
+                    query=query,
+                    allow_render_fallback=(
+                        config.render == "auto" and render_fallbacks < 2
+                    ),
+                )
+                if page.get("render_fallback"):
+                    render_fallbacks += 1
             except (
                 RobotsDenied,
                 FetchError,
@@ -2951,11 +3236,54 @@ def surf_web(
 # ---------------------------------------------------------------------------
 
 
+# Interstitials served instead of content. They are checked only when the
+# extracted body is short, so an article *about* verification is not flagged.
+_VERIFICATION_PATTERNS = (
+    "verify you are human",
+    "unusual traffic",
+    "enable javascript and cookies to continue",
+    "complete the security check",
+)
+_WECHAT_VERIFICATION_PATTERNS = (
+    "环境异常",
+    "完成验证后即可继续访问",
+    "请在微信客户端打开链接",
+    "访问过于频繁",
+)
+_VERIFICATION_MAX_CHARS = 1500
+
+
+def looks_like_verification_page(markdown: str, title: str, url: str) -> str:
+    """Return the marker that identifies a verification page, or ``""``.
+
+    WeChat is checked by host because its interstitial is served on the article
+    URL itself; the generic English markers are safe anywhere as long as the
+    page carries almost no content.  The caller turns a match into
+    ``VerificationRequired`` so a record says what happened instead of handing
+    back 65 characters of an error page as if it were the article.
+    """
+
+    text = f"{title}\n{markdown}".strip()
+    if not text or len(text) > _VERIFICATION_MAX_CHARS:
+        return ""
+    lowered = text.lower()
+    host = (urllib.parse.urlparse(url).hostname or "").lower()
+    if host == "mp.weixin.qq.com" or host.endswith(".weixin.qq.com"):
+        for marker in _WECHAT_VERIFICATION_PATTERNS:
+            if marker.lower() in lowered:
+                return marker
+    for marker in _VERIFICATION_PATTERNS:
+        if marker in lowered:
+            return marker
+    return ""
+
+
 def fetch_page(
     url: str,
     config: Optional[FetchConfig] = None,
     fetcher: Optional[HttpFetcher] = None,
     query: str = "",
+    allow_render_fallback: bool = True,
 ) -> dict[str, Any]:
     """Fetch one URL and return a JSON-serialisable record."""
 
@@ -2968,10 +3296,18 @@ def fetch_page(
 
     try:
         policy = fetcher.assert_allowed(url)
+        robots_checked = bool(config.respect_robots and config.robots_policy != "ignore")
+        robots_overridden = bool(robots_checked and not policy.allowed(url))
+        if robots_overridden:
+            warnings.append(
+                "robots.txt disallows this path; read because robots policy is "
+                "'warn'. This override is recorded as compliance.robots_overridden."
+            )
         extra_delay = policy.crawl_delay if policy and policy.crawl_delay else 0.0
 
         response: Optional[HttpResponse] = None
         rendered = False
+        render_fallback = False
         html = ""
 
         if config.render == "always":
@@ -2992,6 +3328,33 @@ def fetch_page(
                     warnings.append(f"dynamic rendering skipped: {exc}")
                 except Exception as exc:  # pragma: no cover - defensive
                     warnings.append(f"dynamic rendering failed: {exc}")
+
+            # Some sites answer a plain request with a 100-byte script shell
+            # that only a browser resolves. It carries no SPA markers, so the
+            # heuristic above misses it and extraction would report an empty
+            # page. Render it once, within the caller's budget.
+            if (
+                allow_render_fallback
+                and config.render == "auto"
+                and not rendered
+                and response is not None
+                and "html" in response.content_type.lower()
+                and looks_like_html_shell(html)
+            ):
+                try:
+                    rendered_html = render_html(url, config)
+                    if rendered_html and len(rendered_html) > len(html):
+                        html = rendered_html
+                        rendered = True
+                        render_fallback = True
+                        warnings.append(
+                            "the server returned a minimal HTML shell; rendered it "
+                            "once with Playwright before extraction"
+                        )
+                except RenderUnavailable as exc:
+                    warnings.append(f"shell rendering skipped: {exc}")
+                except Exception as exc:  # pragma: no cover - defensive
+                    warnings.append(f"shell rendering failed: {exc}")
 
         content_type = response.content_type if response else "text/html"
         final_url = response.final_url if response else url
@@ -3075,6 +3438,23 @@ def fetch_page(
             metadata = extract_metadata(html, url=final_url)
             tables = extract_tables(html) if config.include_tables else []
 
+        marker = looks_like_verification_page(
+            markdown, str(metadata.get("title", "")), final_url
+        )
+        if marker:
+            hint = ""
+            host = (urllib.parse.urlparse(final_url).hostname or "").lower()
+            if host == "mp.weixin.qq.com" or host.endswith(".weixin.qq.com"):
+                hint = (
+                    " WeChat serves its article body only to a browser session that "
+                    "has already passed verification: try the wechat-dig browser "
+                    "playbook with --backend cdp and a profile you have opened once."
+                )
+            raise VerificationRequired(
+                f"{final_url} returned a verification/anti-bot page ({marker}); "
+                f"HTTP mode does not solve challenges.{hint}"
+            )
+
         if not markdown.strip():
             raise ExtractionError(
                 f"no readable content extracted from {final_url}; "
@@ -3123,6 +3503,7 @@ def fetch_page(
             "feed_format": feed_format,
             "cached": bool(response.from_cache) if response else False,
             "rendered": rendered,
+            "render_fallback": render_fallback,
             "fetched_at": utc_now(),
             "title": metadata.get("title", ""),
             "metadata": metadata,
@@ -3133,6 +3514,13 @@ def fetch_page(
             "warnings": warnings,
             "trust": trust,
             "injection_flags": injection_flags,
+            "compliance": {
+                "robots_checked": robots_checked,
+                "robots_policy": (
+                    config.robots_policy if config.respect_robots else "ignore"
+                ),
+                "robots_overridden": robots_overridden,
+            },
         }
     finally:
         if own_fetcher:
@@ -3447,28 +3835,59 @@ def fetch_by_query(
             config,
             engine=engine,
             limit=config.num_results,
-            fetcher=fetcher,
             report=engine_report,
         )
         pages: list[dict[str, Any]] = []
-        for result in results[: config.max_pages]:
+        skipped: list[dict[str, str]] = []
+        attempts = 0
+        render_fallbacks = 0
+        # ``max_pages`` means readable pages, not attempts. Keep scanning past
+        # robots-denied or unreadable results, with a cap so one query cannot
+        # turn into an unbounded site walk.
+        max_attempts = min(len(results), max(config.max_pages * 3, config.max_pages + 5))
+        for result in results:
+            if len(pages) >= config.max_pages or attempts >= max_attempts:
+                break
+            attempts += 1
             try:
-                pages.append(fetch_page(result["url"], config, fetcher=fetcher))
-            except (RobotsDenied, FetchError, ExtractionError, RenderUnavailable) as exc:
-                pages.append(
+                page = fetch_page(
+                    result["url"],
+                    config,
+                    fetcher=fetcher,
+                    allow_render_fallback=(
+                        config.render == "auto" and render_fallbacks < 2
+                    ),
+                )
+                if page.get("render_fallback"):
+                    render_fallbacks += 1
+                pages.append(page)
+            except RobotsDenied as exc:
+                skipped.append(
+                    {"url": result["url"], "code": "robots_denied", "reason": str(exc)}
+                )
+            except VerificationRequired as exc:
+                skipped.append(
                     {
                         "url": result["url"],
-                        "error": f"{exc.__class__.__name__}: {exc}",
-                        "warnings": [],
+                        "code": "verification_required",
+                        "reason": str(exc),
                     }
                 )
+            except FetchError as exc:
+                skipped.append(
+                    {"url": result["url"], "code": "fetch_error", "reason": str(exc)}
+                )
+            except ExtractionError as exc:
+                skipped.append(
+                    {"url": result["url"], "code": "extraction_error", "reason": str(exc)}
+                )
+            except RenderUnavailable as exc:
+                skipped.append(
+                    {"url": result["url"], "code": "render_unavailable", "reason": str(exc)}
+                )
             except Exception as exc:  # pragma: no cover - defensive
-                pages.append(
-                    {
-                        "url": result["url"],
-                        "error": f"unexpected error: {exc}",
-                        "warnings": [],
-                    }
+                skipped.append(
+                    {"url": result["url"], "code": "unexpected", "reason": str(exc)}
                 )
         payload: dict[str, Any] = {
             "query": query,
@@ -3477,8 +3896,57 @@ def fetch_by_query(
             "search_results": results,
             "engine_report": engine_report,
             "pages": pages,
+            "skipped": skipped,
+            "pages_attempted": attempts,
         }
         warnings = search_warnings(query, results, engine=engine)
+        if skipped:
+            counts: dict[str, int] = {}
+            for item in skipped:
+                counts[item["code"]] = counts.get(item["code"], 0) + 1
+            summary = ", ".join(f"{code} ({count})" for code, count in sorted(counts.items()))
+            warnings.append(
+                f"{len(skipped)} result(s) skipped while filling {config.max_pages} "
+                f"readable page(s): {summary}"
+            )
+            if counts.get("robots_denied"):
+                warnings.append(
+                    "robots.txt denied the skipped paths. Use --robots-policy warn only "
+                    "when you are authorised to read them; the record will mark the "
+                    "override. Do not silently switch to a tool that ignores robots."
+                )
+            if counts.get("verification_required"):
+                warnings.append(
+                    "verification_required means the site answered with an anti-bot or "
+                    "verification page instead of the article. For a WeChat link, read it "
+                    "in browser mode: browser_run with playbook \"wechat-dig\" and that URL "
+                    "(CLI: node browser/run.js --playbook wechat-dig --url <URL> --backend cdp) "
+                    "after signing in once with browser/launch_chrome.py. Do not try to solve "
+                    "the challenge."
+                )
+            wechat_denied = [
+                item
+                for item in skipped
+                if item["code"] == "robots_denied"
+                and (
+                    urllib.parse.urlparse(item["url"]).hostname or ""
+                ).lower()
+                == "mp.weixin.qq.com"
+            ]
+            if wechat_denied:
+                warnings.append(
+                    "WeChat article links cannot be read in HTTP mode: robots.txt disallows "
+                    "/s, and the page itself returns an environment check. Open one with "
+                    "browser mode instead: browser_run with playbook \"wechat-dig\" and that "
+                    "URL (CLI: node browser/run.js --playbook wechat-dig --url <URL> --backend cdp). "
+                    "Do not try to solve the challenge."
+                )
+            if not pages:
+                warnings.append(
+                    "No readable page was left. Try --engine bing for a Latin query, "
+                    "--action find --site <host> for a site's own search, or "
+                    "--action feed --url <site> for its RSS/Atom feed."
+                )
         if warnings:
             payload["warnings"] = warnings
         return payload

@@ -23,17 +23,17 @@ function run(args) {
 test("--version prints the package version", () => {
   const result = run(["--version"]);
   assert.equal(result.status, 0);
-  assert.match(result.stdout, /web-forager-browser 1\.2\.3/);
+  assert.match(result.stdout, /web-forager-browser 1.3.0/);
 });
 
-test("--list --agent lists the seven playbooks", () => {
+test("--list --agent lists the eight playbooks", () => {
   const result = run(["--list", "--agent"]);
   assert.equal(result.status, 0);
   const payload = JSON.parse(result.stdout);
   assert.equal(payload.ok, true);
   assert.deepEqual(
     payload.data.map((item) => item.name).sort(),
-    ["bili-chain", "bili-danmaku", "bili-feed", "bili-video", "search-dig", "xhs-dig", "zhihu-dig"],
+    ["bili-chain", "bili-danmaku", "bili-feed", "bili-video", "search-dig", "wechat-dig", "xhs-dig", "zhihu-dig"],
   );
 });
 

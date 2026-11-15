@@ -1,4 +1,4 @@
-# web-forager — agent operating rules (v1.2.3)
+# web-forager — agent operating rules (v1.3.0)
 
 web-forager is a clean-room, robots-aware public-web intelligence layer. It
 searches, fetches, extracts and browses the open web to collect public information; it
@@ -40,9 +40,10 @@ the MCP server and `SKILL.md` share one engine and one robots/cache pipeline.
 
 ## Browser mode entry points (Node 18+)
 
-- `node browser/run.js --list` — list the seven browser playbooks
+- `node browser/run.js --list` — list the eight browser playbooks
 - `node browser/run.js --playbook bili-feed|bili-video|bili-chain|bili-danmaku`
 - `node browser/run.js --playbook zhihu-dig|xhs-dig|search-dig --query <TEXT>`
+- `node browser/run.js --playbook wechat-dig --url <WECHAT_ARTICLE_URL>`
 - `node browser/run.js --playbook bili-feed --dry-run` — plan without a browser
 - `node browser/run.js --playbook <NAME> --strict-robots` — check robots.txt first
 - `node browser/run.js --playbook <NAME> --core` — shared `core-1` records
@@ -78,10 +79,22 @@ Add `--agent` to any CLI action for a machine-readable
 
 ## Hard rules
 
-- **robots.txt is always checked** before a page is opened. `--ignore-robots`
-  is only for resources you are explicitly authorised to access.
-- **One request at a time per origin**, default 1 second apart; no concurrency
-  fan-out, including surf, sitemap and optional scholarly API calls.
+- **robots.txt is checked according to `--robots-policy`** (`respect` by
+  default). `warn` and `ignore` are only for resources you are explicitly
+  authorised to access; `warn` records the override in the page's `compliance`
+  block, `ignore` records that robots was not consulted.
+- **Engines on different hosts may run at the same time**; each origin remains
+  one request at a time, one second apart. Page fetching, surf, sitemap and
+  scholarly calls are not fanned out.
+- **Rendering is bounded.** `--render auto` renders once when the server
+  returns a script shell, and `fetch --query` allows at most two such renders.
+  A rendered page adds seconds; do not raise the budget for a bulk run.
+- **A `robots_denied`, `verification_required` or `login_required` result is a
+  boundary, not a retry signal.** Do not silently re-fetch the same URL with a
+  tool that ignores robots.txt, and do not try to solve the check; ask the user,
+  use `--robots-policy warn` only after authorisation, or choose another source.
+  For a WeChat article, `wechat-dig` may read it in a profile that has already
+  passed the check; if it has not, the playbook reports `blocked`.
 - **Do not bypass** logins, CAPTCHAs, Cloudflare challenges or paywalls; do not
   collect personal data.
 - **Workspace discipline**: with `--root`, write only to

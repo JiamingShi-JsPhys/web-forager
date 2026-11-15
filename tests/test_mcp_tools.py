@@ -12,10 +12,10 @@ def test_config_checks_robots_by_default() -> None:
 
 
 def test_search_tool_keeps_max_pages_zero_from_becoming_one() -> None:
-    # _config floors max_pages for the fetch path, but web_search reads the raw
-    # argument: zero must mean "results only, no page bodies".
+    # Zero means "results only, no page bodies"; the shared search path now
+    # treats max_pages as readable pages, so it must not be floored to one.
     config = mcp_server._config({"max_pages": 0})
-    assert config.max_pages >= 1
+    assert config.max_pages == 0
 
 
 def test_search_tool_warns_when_results_ignore_the_query(monkeypatch) -> None:

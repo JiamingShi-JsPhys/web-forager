@@ -1,6 +1,6 @@
 {
   "name": "web-forager",
-  "version": "1.2.3",
+  "version": "1.3.0",
   "main": "index.js",
   "scripts": {
     "test": "python -m pytest",
@@ -15,6 +15,7 @@
     "mcp_server.py",
     "browser/run.js",
     "browser/mcp_server.js",
+    "browser/launch_chrome.py",
     "browser/package.json",
     "browser/lib/",
     "browser/playbooks/",
@@ -36,5 +37,5 @@
       "patch": "./cordis.patch.yml"
     }
   },
-  "description": "Clean-room, robots-aware web information gathering: multi-engine search, HTML/PDF/Office/feed extraction, Bilibili/Zhihu/Xiaohongshu reading, sitemaps and resumable surfing, plus a browser mode with seven read-only playbooks. CLI + two MCP servers."
+  "description": "Clean-room, robots-aware web information gathering: multi-engine search, HTML/PDF/Office/feed extraction, Bilibili/Zhihu/Xiaohongshu/WeChat reading, sitemaps and resumable surfing, plus a browser mode with eight read-only playbooks. CLI + two MCP servers."
 }

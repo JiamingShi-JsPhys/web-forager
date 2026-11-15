@@ -106,6 +106,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--num-results", type=int, default=8, help="search results to request (default: 8)")
     parser.add_argument(
+        "--serial-engines",
+        action="store_true",
+        help="ask search engines one after another (default: parallel across different hosts)",
+    )
+    parser.add_argument(
         "--max-pages",
         type=int,
         default=3,
@@ -162,9 +167,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--timeout", type=float, default=20.0, help="per-request timeout in seconds")
     parser.add_argument("--delay", type=float, default=1.0, help="politeness delay per host in seconds")
     parser.add_argument(
+        "--robots-policy",
+        choices=("respect", "warn", "ignore"),
+        default="respect",
+        help=(
+            "respect: refuse a disallowed path (default); warn: read it and mark "
+            "the record with compliance.robots_overridden; ignore: do not consult robots.txt"
+        ),
+    )
+    parser.add_argument(
         "--ignore-robots",
         action="store_true",
-        help="DANGEROUS: skip robots.txt checks (only for resources you are authorised to access)",
+        help="DANGEROUS: same as --robots-policy ignore (only for resources you are authorised to access)",
     )
     parser.add_argument(
         "--allow-private",
@@ -233,6 +247,7 @@ def build_config(args: argparse.Namespace) -> engine.FetchConfig:
         delay=args.delay,
         max_chars=args.max_chars,
         respect_robots=not args.ignore_robots,
+        robots_policy="ignore" if args.ignore_robots else args.robots_policy,
         render=args.render,
         include_tables=not args.no_tables,
         keep_links=args.keep_links,
@@ -243,6 +258,7 @@ def build_config(args: argparse.Namespace) -> engine.FetchConfig:
         extract_links=args.action == "surf",
         follow=args.follow,
         search_engine=args.engine,
+        parallel_engines=not args.serial_engines,
         proxy=args.proxy,
         search_pages=max(1, args.search_pages),
         cache=args.cache,
@@ -750,7 +766,9 @@ def main(argv: list[str] | None = None) -> int:
             args,
             "robots_denied",
             f"robots.txt denied this request: {exc}",
-            "use --ignore-robots only for resources you are authorised to access",
+            "robots.txt denied this request. Use --robots-policy warn only when "
+            "you are authorised to read the path (the record will mark the override), "
+            "or choose another source; do not silently switch to a tool that ignores robots",
             3,
         )
     except engine.UnsafeAddress as exc:
@@ -767,6 +785,17 @@ def main(argv: list[str] | None = None) -> int:
         return _fail(args, "pdf_unavailable", str(exc), "pip install pypdf", 7)
     except engine.PdfExtractionError as exc:
         return _fail(args, "pdf_extraction_failed", str(exc), "check that the file is a valid PDF", 5)
+    except engine.VerificationRequired as exc:
+        return _fail(
+            args,
+            "verification_required",
+            f"verification required: {exc}",
+            "open it in browser mode with the wechat-dig playbook "
+            "(node browser/run.js --playbook wechat-dig --url <URL> --backend cdp) "
+            "after signing in once with browser/launch_chrome.py; "
+            "web-forager does not solve challenges",
+            9,
+        )
     except engine.FetchError as exc:
         return _fail(args, "fetch_failed", f"fetch failed: {exc}", "check the URL and network", 4)
     except engine.ExtractionError as exc:

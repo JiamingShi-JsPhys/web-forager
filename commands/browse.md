@@ -1,6 +1,6 @@
 ---
 name: browse
-description: Drive a real browser through a bridge to read rendered pages, login-state sites, Bilibili danmaku and six more read-only playbooks.
+description: Drive a real browser through a bridge to read rendered pages, login-state sites, Bilibili danmaku, WeChat articles and six more read-only playbooks.
 metadata:
   skill: web-forager
   stage: domain_extensions
@@ -26,6 +26,7 @@ node browser/run.js --playbook bili-danmaku --url "<VIDEO_URL>" --observe-ms 500
 node browser/run.js --playbook zhihu-dig --query "<KEYWORDS>" --agent
 node browser/run.js --playbook xhs-dig --query "<KEYWORDS>" --agent
 node browser/run.js --playbook search-dig --query "<KEYWORDS>" --agent
+node browser/run.js --playbook wechat-dig --url "<WECHAT_ARTICLE_URL>" --agent
 node browser/run.js --playbook bili-feed --dry-run
 ```
 
@@ -39,6 +40,8 @@ node browser/run.js --playbook bili-feed --dry-run
 - Exit 8 is `degraded`: the page was read but the playbook found nothing it
   looks for, and the records are still attached. Exit 9 is `blocked`: an
   anti-bot or error page replaced the content. Exit 6 is `login_required`.
+  `wechat-dig` reports `blocked` when the profile has not passed WeChat's
+  environment check; HTTP mode reports the same wall as `verification_required`.
 - `--core` returns the shared `core-1` record instead of the browser record.
 - The optional reference bridge needs Playwright:
   `npm install playwright && npx playwright install chromium`.
