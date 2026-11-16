@@ -32,7 +32,8 @@
   "scripts": {
     "test": "python -m pytest",
     "test:browser": "node --test \"browser/tests/*.test.js\"",
-    "test:live": "node browser/tests/live-smoke.js"
+    "test:live": "node browser/tests/live-smoke.js",
+    "prepublishOnly": "node clean-pycache.mjs"
   },
   "files": [
     "index.js",
