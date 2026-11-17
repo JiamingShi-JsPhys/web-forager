@@ -324,7 +324,7 @@ python -m pytest tests -q
 npm run test:browser
 ```
 
-共 **332 个 Python 测试**加 **91 个浏览器测试**，全部离线通过。
+共 **333 个 Python 测试**加 **91 个浏览器测试**，全部离线通过。
 
 <details>
 <summary>测试覆盖了什么</summary>

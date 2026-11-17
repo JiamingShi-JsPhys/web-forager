@@ -53,6 +53,34 @@ def test_cache_and_session_state_are_owner_only(
     assert stat.S_IMODE(saved.stat().st_mode) == 0o600
 
 
+def test_cache_marks_both_halves_private(
+    tmp_path: object, site: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The metadata file carries URLs and headers; it needs 0600 too.
+
+    The POSIX assertion above is skipped on Windows, so this cross-platform
+    test records the requested modes instead of reading them back.
+    """
+
+    cache_dir = str(tmp_path) + "/cache"  # type: ignore[operator]
+    calls: list[tuple[str, int]] = []
+    original = engine._private_path
+
+    def record(path: Any, mode: int) -> None:
+        calls.append((engine.Path(path).suffix, mode))
+        original(path, mode)
+
+    monkeypatch.setattr(engine, "_private_path", record)
+    engine.fetch_page(
+        f"{site}/index.html", local_config(cache=True, cache_dir=cache_dir)
+    )
+
+    suffix_modes = dict(calls)
+    assert suffix_modes[".bin"] == 0o600
+    assert suffix_modes[".json"] == 0o600
+    assert suffix_modes[""] == 0o700
+
+
 def test_redirect_into_a_disallowed_path_is_refused(site: str) -> None:
     """Every redirect hop is checked, not only the caller-supplied URL."""
 

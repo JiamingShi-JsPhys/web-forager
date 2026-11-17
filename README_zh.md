@@ -398,7 +398,7 @@ python -m pytest
 node --test "browser/tests/*.test.js"
 ```
 
-332 个 Python 测试与 91 个浏览器测试，全部离线。Python 套件会起一个临时本地 HTTP 站点，提供 robots.txt、文章、PDF/Office 文件、订阅源、sitemap、搜索结果页与多跳 surf 页面；浏览器套件用假后端与说同一套线协议的假桥，再加真实页面导出的快照。CI 从仓库克隆里跑两套；发布归档不含测试目录。
+333 个 Python 测试与 91 个浏览器测试，全部离线。Python 套件会起一个临时本地 HTTP 站点，提供 robots.txt、文章、PDF/Office 文件、订阅源、sitemap、搜索结果页与多跳 surf 页面；浏览器套件用假后端与说同一套线协议的假桥，再加真实页面导出的快照。CI 从仓库克隆里跑两套；发布归档不含测试目录。
 
 ## 完整法律声明
 

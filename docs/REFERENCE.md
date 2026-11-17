@@ -331,7 +331,7 @@ python -m pytest tests -q
 npm run test:browser
 ```
 
-That is **332 Python tests** plus **91 browser tests**, all passing and fully offline.
+That is **333 Python tests** plus **91 browser tests**, all passing and fully offline.
 
 <details>
 <summary>What the suites cover</summary>

@@ -1107,6 +1107,7 @@ class HttpFetcher:
                 ),
                 encoding="utf-8",
             )
+            _private_path(meta_path, 0o600)
         except OSError as exc:  # a cache failure must never fail the fetch
             log(f"cache write skipped ({exc})", self.config)
 

@@ -399,7 +399,7 @@ python -m pytest
 node --test "browser/tests/*.test.js"
 ```
 
-332 Python tests and 91 browser tests, all offline. The Python suite starts a temporary local HTTP server for robots.txt, articles, PDF/Office files, feeds, sitemaps, search-result pages and multi-hop surf pages; the browser suite uses a fake backend and fake bridges that speak the same wire protocol, plus snapshots recorded from live pages. CI runs both from a repository clone; release archives exclude the test folders.
+333 Python tests and 91 browser tests, all offline. The Python suite starts a temporary local HTTP server for robots.txt, articles, PDF/Office files, feeds, sitemaps, search-result pages and multi-hop surf pages; the browser suite uses a fake backend and fake bridges that speak the same wire protocol, plus snapshots recorded from live pages. CI runs both from a repository clone; release archives exclude the test folders.
 
 ## Full legal notice
 
