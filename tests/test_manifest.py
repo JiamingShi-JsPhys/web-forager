@@ -18,15 +18,15 @@ DISCLAIMER_EN = (
     "doxxing, harassment, stalking or any other invasion of privacy — is prohibited; the user bears full "
     "legal responsibility for such use."
 )
-ALLOWED_DEPENDENCIES = {"requests", "beautifulsoup4", "trafilatura", "playwright", "pypdf"}
+ALLOWED_DEPENDENCIES = {"requests", "beautifulsoup4", "trafilatura", "playwright", "pypdf", "certifi"}
 
 
 def test_manifest_is_complete() -> None:
     manifest = json.loads((PLUGIN_ROOT / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["name"] == "web-forager"
-    assert manifest["version"] == "1.3.0"
+    assert manifest["version"] == "1.3.1"
     assert manifest["license"] == "MIT"
-    assert set(manifest["actions"]) == {"fetch", "find", "feed", "clean", "bili", "surf", "scholar", "map"}
+    assert set(manifest["actions"]) == {"fetch", "research", "find", "feed", "clean", "bili", "surf", "scholar", "map"}
     assert (PLUGIN_ROOT / manifest["entrypoint"]).is_file()
     assert manifest["disclaimer"] == DISCLAIMER
 
@@ -194,7 +194,7 @@ def test_multi_platform_manifests() -> None:
     for folder in (".claude-plugin", ".codex-plugin", ".codebuddy-plugin", ".dsh-plugin"):
         data = json.loads((PLUGIN_ROOT / folder / "plugin.json").read_text(encoding="utf-8"))
         assert data["name"] == "web-forager"
-        assert data["version"] == "1.3.0"
+        assert data["version"] == "1.3.1"
 
     for folder in (".claude-plugin", ".codex-plugin", ".codebuddy-plugin"):
         market = json.loads((PLUGIN_ROOT / folder / "marketplace.json").read_text(encoding="utf-8"))
@@ -253,7 +253,7 @@ def test_npm_package_carries_every_host_manifest() -> None:
 
 def test_cursor_rule_heading_matches_version() -> None:
     rule = (PLUGIN_ROOT / ".cursor" / "rules" / "web-forager.mdc").read_text(encoding="utf-8")
-    assert "agent operating rules (v1.3.0)" in rule
+    assert "agent operating rules (v1.3.1)" in rule
     assert "agent operating rules (v1.0.0)" not in rule
 
 
@@ -266,11 +266,11 @@ def test_mcp_registration() -> None:
     assert set(manifest["mcp"]["tools"]) == {
         "web_fetch",
         "web_search",
+        "web_research",
         "web_surf",
         "web_scholar",
         "web_map",
         "web_bilibili",
-        "web_clean",
         "web_doctor",
         "web_find",
         "web_feed",

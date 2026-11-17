@@ -11,7 +11,9 @@
 <details>
 <summary>Tool names</summary>
 
-HTTP tools: `web_fetch`, `web_search`, `web_surf`, `web_scholar`, `web_map`, `web_bilibili`, `web_clean`, `web_doctor`, `web_find`, `web_feed`. Browser tools: `browser_list`, `browser_run`, `browser_session`, `browser_doctor`.
+HTTP tools: `web_fetch`, `web_search`, `web_research`, `web_surf`, `web_scholar`, `web_map`, `web_bilibili`, `web_doctor`, `web_find`, `web_feed`. Browser tools: `browser_list`, `browser_run`, `browser_session`, `browser_doctor`.
+
+MCP calls are always read-only and keep the target-page boundary: no tool parameter can change `respect_robots`, `robots_policy`, `input_gate`, the proxy, the browser bridge or a write switch, and the local file `clean` action is not exposed over MCP. Search-engine and scholarly query endpoints have a separate user-level policy (`--query-robots` on the CLI, `WEB_FORAGER_QUERY_ROBOTS` in the server environment), default `warn`: a disallowed query path is read and the engine report names the override; `respect` refuses it. The agent cannot change this through a tool call.
 
 </details>
 
@@ -54,7 +56,7 @@ WeChat articles are the one case HTTP mode cannot finish. `mp.weixin.qq.com` dis
 
 The bundled bridge is picked up automatically once `playwright` and its Chromium binary are installed; `--bridge` or `WEB_FORAGER_BRIDGE` points at a bridge elsewhere. The command is split on whitespace and started without a shell, so quote a path that contains spaces and pass arguments as usual; pipes, `&&` and redirection are not interpreted. `WEB_FORAGER_BROWSER_HEADFUL=1` shows the window, `WEB_FORAGER_BROWSER_PROFILE=/path` reuses a persistent profile (this is what carries login state for the `extension` backend), and `WEB_FORAGER_BROWSER_CDP=http://127.0.0.1:9222` attaches to a browser you already control (`cdp`). A bridge declares its real capabilities through an optional `describe` call; one that does not implement it is reported as `declared: false` with every capability false.
 
-To sign in once, run `python browser/launch_chrome.py` (it defaults to `~/.web-forager/browser/profile`, prints the `WEB_FORAGER_BROWSER_CDP` value, and supports `--dry-run`), then pass `--backend cdp`. `--storage-state FILE` loads a Playwright state file before the run; `--save-storage-state FILE` writes one after it, with mode `0600` and a refusal if the path is inside `--root`. That file contains cookies and logins: treat it as a credential, keep it out of git, and do not copy it to a shared machine.
+To sign in once, run `python browser/launch_chrome.py` (it defaults to `~/.web-forager/browser/profile`, and CDP is **off** by default; `--cdp` opts in to a loopback CDP port, random by default or fixed with `--port 9222`). Without `--cdp`, run browser mode with the default backend and it reuses the profile. With `--cdp`, pass `--backend cdp`. CDP itself has no authentication: keep the port local and close the browser when finished. `--storage-state FILE` loads a Playwright state file before the run; `--save-storage-state FILE` writes one after it, with mode `0600` and a refusal if the path is inside `--root`. That file contains cookies and logins: treat it as a credential, keep it out of git, and do not copy it to a shared machine.
 
 `--strict-robots` fetches `robots.txt` before every navigation and stops with `robots_denied` (exit 3) on a disallowed path. Without it the record says so: `compliance.robots_checked` is `false`. A run that reaches the site but finds nothing readable is `degraded` (exit 8) with its records attached; an anti-bot or error interstitial is `blocked` (exit 9); a site that asks for credentials is `login_required` (exit 6).
 
@@ -126,14 +128,18 @@ python run.py --action bili --mode feed --max-items 10
 | Field | HTTP mode | Browser mode |
 |---|---|---|
 | `metadata`, `markdown`, `tables`, `warnings` | yes | yes |
-| `trust`, `injection_flags` | yes | yes |
+| `trust`, `injection_flags`, `injection_findings` | yes | yes |
 | `url`, `title` | yes (`url` and `final_url`) | yes |
 | `status`, `content_type`, `document_kind`, `cached`, `rendered`, `render_fallback`, `fetched_at`, `chunks`, `links` | yes | no |
 | `schema_version`, `captured_at`, `playbook`, `backend`, `compliance`, `viewport_evidence`, `interaction_trace` | no | yes |
 
 `render_fallback` is `true` when the server answered with a minimal script shell and HTTP mode rendered it once with Playwright before extraction. A `fetch --query` allows at most two such renders, and each one adds several seconds.
 
-Search results are ordered by query coverage, title match, a small domain prior, snippet freshness and engine order. The final list keeps at most two results per host, so one dominant host cannot crowd out every other source; when too few hosts answered, the overflow fills the remaining slots. A thin first pass is retried once with a simplified query (quotes and common stopwords removed, or a spaced CJK query joined); that retry appears in `engine_report` with `query_variant`.
+`injection_findings` is a list of `{code, severity, confidence, span, snippet, context}`. `span` is a character range in the scanned text, `severity` is `hard` or `soft`, and `context` is `direct`, `quote` or `example`. Hard rules describe an action (forged system tag, secret exfiltration, `curl ... | sh`, `rm -rf /`); `--input-gate strict` withholds a body only when one matches. Soft rules describe override or role-swap language and never withhold on their own, because papers and security notes quote them. The scanner walks the whole body in overlapping windows, before `max_chars` truncation, and the first warning repeats up to three matching snippets.
+
+Search results are ordered by query coverage, phrase and title match, a small domain prior, snippet freshness and engine order — including when only one engine answered. Each result carries `coverage`, `matched_terms`, `relevance` and `language_match`. A result is relevant when it contains the exact phrase or at least two meaningful query terms with half the query covered; a wrong-language page that repeats one product name is `language_match: false`. Off-topic rows are ranked last, and are dropped when at least three relevant results exist; otherwise a warning names how many were kept. The final list keeps at most two results per host, so one dominant host cannot crowd out every other source; when too few hosts answered, the overflow fills the remaining slots. A thin first pass is retried once with a simplified query (quotes and common stopwords removed, or a spaced CJK query joined); that retry appears in `engine_report` with `query_variant`. Search titles and snippets pass through the same injection scanner, and a matching result carries its own `injection_flags` and `injection_findings`.
+
+Before ranking, duplicate URLs are canonicalized: `utm_*`, `fbclid`, fragments, `www.`, trailing slashes and `/amp` no longer make one article look like two results. A result found by more than one engine receives a reciprocal-rank-fusion contribution, and an exact title match gets a small bonus over a title that merely contains the phrase. Light English stemming is used for matching only, so `injection` meets `injections` without changing the displayed query or text. The search payload also carries `search_quality: {query, engine, returned, relevant, off_topic, language_mismatch, engines_answered, engine_errors, dropped_off_topic, returned_before_filter}`, a machine-readable summary for agents that do not want to parse the prose warnings.
 
 `--core` returns the shared shape instead:
 ```json
@@ -176,11 +182,45 @@ Writes only:
 
 ---
 
+## Research output
+
+`research --query` runs two stages: broad recall across the free engines, then
+focused reading of a few distinct hosts. The payload adds:
+
+| Field | Meaning |
+|---|---|
+| `intent` | `{intent, confidence, signals}` from a deterministic keyword classifier |
+| `strategy` | `{breadth, search_pages, targeted_site, targeted_sites, targeted_by_site, official_entries, focus_*}` |
+| `seeds` | selected results with `authority_tier`, `authority_score`, `reason` |
+| `evidence` | `[{url, title, authority_tier, authors, published_at, date_source, passages, partial?}]` |
+| `freshness` | `{newest, oldest, dated_sources, undated_sources, newest_age_days, all_stale}` |
+| `answerability` | `{level, coverage, authority_level, partial_only, source_count, host_count, view_hosts, multi_view, stale, reason}` |
+| `skipped` | pages not used, with `code` (`robots_denied`, `browser_required`, `browser_required_low_value`, `no_matching_passage`, …) |
+
+If the broad pool has no relevant primary/official/academic source, the second
+pass prefers a direct official entry page (Python asyncio, Go concurrency, Rust,
+MDN, Microsoft Wi-Fi support), then the site's own search page (Microsoft
+Support, MDN), and only then a `site:` engine query for a non-CJK question.
+Direct entries and host search pages do not depend on an engine honouring
+`site:`. A news query with no usable engine rows falls back to a public finance
+RSS channel (China News Service); a dated headline and summary are labelled
+`feed_headline`, never expanded into a fabricated article. When the article body
+has no dateline, the fetched page inherits the feed's publication date. Each
+focus fetch is capped at 8 seconds with no retry, and robots.txt at 6 seconds,
+so one dead origin cannot consume the whole call. A comparison needs at
+least two independent full-source viewpoints;
+a WeChat snippet never counts as one. When two full authoritative sources are
+already present for a comparison or technical question, a WeChat-only snippet is
+skipped rather than mixed in. A WeChat link that HTTP mode cannot read still
+yields a `partial` search-snippet record with an explicit warning, never a
+fabricated full article. Every passage is quoted, untrusted page text.
+
 ## Actions and exit codes
 
 | Action | Purpose |
 |---|---|
 | `fetch` | one URL or keyword query → pages |
+| `research` | broad recall → focused, cited evidence passages |
 | `find` | search inside one site through the site's own search page |
 | `feed` | read a site's RSS/Atom feed, discovering it from the page |
 | `clean` | local or remote HTML/PDF/DOCX/XLSX/EPUB/CSV → Markdown |
@@ -259,10 +299,11 @@ web-forager/
 │   ├── bridges/                  optional Playwright reference bridge
 │   └── tests/                    fake backends, real-page snapshots, live smoke
 ├── SKILL.md                      Claude Code skill contract
-├── commands/                     /fetch /surf /scholar /map /browse
+├── commands/                     /fetch /research /surf /scholar /map /browse
 ├── docs/                         install commands, acknowledgements, dependency matrix
 ├── scripts/
 │   ├── engine.py                 robots, fetch, search, cache, chunks, Markdown, surf, find, feed
+│   ├── research.py               broad recall, authority selection, cited evidence passages
 │   ├── pdf.py                    PDF text (optional pypdf)
 │   ├── documents.py              DOCX / XLSX / EPUB / CSV
 │   ├── feeds.py                  RSS / Atom / RSS 1.0
@@ -290,7 +331,7 @@ python -m pytest tests -q
 npm run test:browser
 ```
 
-That is **228 Python tests** plus **75 browser tests**, all passing and fully offline.
+That is **332 Python tests** plus **91 browser tests**, all passing and fully offline.
 
 <details>
 <summary>What the suites cover</summary>

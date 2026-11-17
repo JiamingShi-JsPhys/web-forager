@@ -1,6 +1,6 @@
 {
   "name": "web-forager",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "stage": "domain_extensions",
   "input_types": [
     "url",
@@ -35,6 +35,7 @@
   "entrypoint": "run.py",
   "actions": [
     "fetch",
+    "research",
     "find",
     "feed",
     "clean",
@@ -49,11 +50,11 @@
     "tools": [
       "web_fetch",
       "web_search",
+      "web_research",
       "web_surf",
       "web_scholar",
       "web_map",
       "web_bilibili",
-      "web_clean",
       "web_doctor",
       "web_find",
       "web_feed"

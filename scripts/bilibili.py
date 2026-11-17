@@ -721,11 +721,18 @@ def search(
                 f"{route} answered"
             )
         elif allow_direct:
+            if config.query_robots == "respect":
+                raise engine.RobotsDenied(
+                    "--direct-search queries api.bilibili.com and search.bilibili.com, "
+                    "which disallow generic agents in robots.txt. Pass "
+                    "--query-robots warn (record the override) or ignore (skip the "
+                    "check) only after you are authorised to query them."
+                )
             cards, route = _search_direct(query, config, fetcher, check_robots=False)
             note = (
-                f"--direct-search asked {route} directly; that host disallows "
-                "generic agents in robots.txt, and video pages are still fetched "
-                "with robots checks enabled"
+                f"--direct-search asked {route} directly under the user-selected "
+                "query-robots policy; video pages are still fetched with robots "
+                "checks enabled"
             )
         else:
             cards = _search_via_engines(query, config, fetcher)
@@ -759,6 +766,7 @@ def search(
         return {
             "mode": "search",
             "query": query,
+            "query_robots": config.query_robots,
             "route": route,
             "note": note,
             "search_results": cards,

@@ -11,7 +11,9 @@
 <details>
 <summary>工具名</summary>
 
-HTTP 工具：`web_fetch`、`web_search`、`web_surf`、`web_scholar`、`web_map`、`web_bilibili`、`web_clean`、`web_doctor`、`web_find`、`web_feed`。浏览器工具：`browser_list`、`browser_run`、`browser_session`、`browser_doctor`。
+HTTP 工具：`web_fetch`、`web_search`、`web_research`、`web_surf`、`web_scholar`、`web_map`、`web_bilibili`、`web_doctor`、`web_find`、`web_feed`。浏览器工具：`browser_list`、`browser_run`、`browser_session`、`browser_doctor`。
+
+MCP 调用始终只读，并保持目标页边界：没有任何工具参数能改 `respect_robots`、`robots_policy`、`input_gate`、代理、浏览器桥命令或写开关，本地文件 `clean` 动作也不对 MCP 暴露。搜索引擎与学术查询接口有单独的用户级策略（命令行 `--query-robots`，服务进程环境变量 `WEB_FORAGER_QUERY_ROBOTS`），默认 `warn`：会读取被禁止的查询路径，并在引擎报告里写明这次覆盖；`respect` 会拒绝。模型无法通过工具调用改变它。
 
 </details>
 
@@ -54,7 +56,7 @@ node browser/run.js --playbook wechat-dig --url "https://mp.weixin.qq.com/s/..."
 
 装好 `playwright` 与它的 Chromium 后，自带的桥会被自动启用；`--bridge` 或 `WEB_FORAGER_BRIDGE` 用于指向别处的桥。命令按空白拆分后直接启动，不经过 shell——路径含空格时加引号，参数照常写；管道、`&&` 与重定向不会被解释。`WEB_FORAGER_BROWSER_HEADFUL=1` 显示窗口；`WEB_FORAGER_BROWSER_PROFILE=/path` 复用持久化配置目录（`extension` 后端的登录态正是靠它保留）；`WEB_FORAGER_BROWSER_CDP=http://127.0.0.1:9222` 接管你已有的浏览器（`cdp`）。桥通过可选的 `describe` 调用声明自己实现了什么；不实现 `describe` 的桥会被标记为 `declared: false`，所有能力一律为 false。
 
-登录一次的做法：运行 `python browser/launch_chrome.py`（默认使用 `~/.web-forager/browser/profile`，会打印 `WEB_FORAGER_BROWSER_CDP` 的值，支持 `--dry-run`），然后给剧本加 `--backend cdp`。`--storage-state FILE` 在运行前载入 Playwright 状态文件；`--save-storage-state FILE` 在运行后写出，权限为 `0600`，路径落在 `--root` 内会被拒绝。这个文件包含 Cookie 与登录态：按凭据对待，不要提交进 git，也不要复制到共享机器。
+登录一次的做法：运行 `python browser/launch_chrome.py`（默认使用 `~/.web-forager/browser/profile`，**CDP 默认关闭**；加 `--cdp` 才开启一个环回 CDP 端口，默认随机、`--port 9222` 可固定）。不加 `--cdp` 时，用默认后端运行浏览器即可复用该配置；加了 `--cdp` 才需要给剧本加 `--backend cdp`。CDP 本身没有认证：端口只留在本机，用完关闭浏览器。`--storage-state FILE` 在运行前载入 Playwright 状态文件；`--save-storage-state FILE` 在运行后写出，权限为 `0600`，路径落在 `--root` 内会被拒绝。这个文件包含 Cookie 与登录态：按凭据对待，不要提交进 git，也不要复制到共享机器。
 
 `--strict-robots` 在每次导航前读取 `robots.txt`，被禁止的路径以 `robots_denied`（退出码 3）停下。不加这个开关时记录同样说清楚：`compliance.robots_checked` 为 `false`。读到了页面却什么也没找到会报告 `degraded`（退出码 8）并附上记录；反爬或错误页以 `blocked`（退出码 9）停下；站点要求登录是 `login_required`（退出码 6）。
 
@@ -126,14 +128,18 @@ python run.py --action bili --mode feed --max-items 10
 | 字段 | HTTP 模式 | 浏览器模式 |
 |---|---|---|
 | `metadata`、`markdown`、`tables`、`warnings` | 有 | 有 |
-| `trust`、`injection_flags` | 有 | 有 |
+| `trust`、`injection_flags`、`injection_findings` | 有 | 有 |
 | `url`、`title` | 有（`url` 与 `final_url`） | 有 |
 | `status`、`content_type`、`document_kind`、`cached`、`rendered`、`render_fallback`、`fetched_at`、`chunks`、`links` | 有 | 无 |
 | `schema_version`、`captured_at`、`playbook`、`backend`、`compliance`、`viewport_evidence`、`interaction_trace` | 无 | 有 |
 
 `render_fallback` 为 `true` 表示服务器只返回了极小的脚本壳，HTTP 模式在抽取前用 Playwright 重渲染了一次。`fetch --query` 每次最多允许两次这样的重渲染，每次会多花数秒。
 
-搜索结果按查询覆盖度、标题命中、域名先验、摘要时效与引擎顺序排序；最终列表每个域名最多两条，避免单一站点挤掉其他来源；来源不足时再用溢出的结果补满。首轮结果过少时会用简化查询重试一次（去掉引号与常见停用词，或把带空格的中文查询合并），重试会在 `engine_report` 里标 `query_variant`。
+`injection_findings` 是一个列表，每项包含 `{code, severity, confidence, span, snippet, context}`。`span` 是扫描文本里的字符区间，`severity` 为 `hard` 或 `soft`，`context` 为 `direct`、`quote` 或 `example`。硬规则描述具体动作（伪造 system 标签、外传密钥、`curl ... | sh`、`rm -rf /`），只有命中硬规则时 `--input-gate strict` 才扣留正文；软规则是“忽略之前的指令”和角色切换，只报告、不扣留，因为论文与安全文章会合法引用它们。扫描用重叠窗口覆盖全文，发生在 `max_chars` 截断之前；`warnings` 第一条会重复最多三条命中片段。
+
+搜索结果按查询覆盖度、短语与标题命中、域名先验、摘要时效与引擎顺序排序，**只有一个引擎应答时同样排序**。每条结果带 `coverage`、`matched_terms`、`relevance` 与 `language_match`。结果包含完整短语，或至少两个有意义的查询词且覆盖一半查询时，才算相关；只重复一个产品名的异语言页面会标 `language_match: false`。跑题结果排在最后，真有至少三条相关结果时直接剔除；否则保留并在 `warnings` 里说明数量。最终列表每个域名最多两条，避免单一站点挤掉其他来源；来源不足时再用溢出的结果补满。首轮结果过少时会用简化查询重试一次（去掉引号与常见停用词，或把带空格的中文查询合并），重试会在 `engine_report` 里标 `query_variant`。搜索标题与摘要也走同一套注入扫描，命中的结果会带自己的 `injection_flags` 与 `injection_findings`。
+
+排序前会先规范化 URL：`utm_*`、`fbclid`、片段、`www.`、末尾斜杠与 `/amp` 不再把同一篇文章算成两条结果。被多个引擎同时返回的结果会获得 RRF 加分；标题与查询完全一致时比“标题包含短语”略高。匹配阶段使用轻量英文词形归一，所以 `injection` 能遇到 `injections`，但显示的查询与正文不变。搜索载荷还带 `search_quality: {query, engine, returned, relevant, off_topic, language_mismatch, engines_answered, engine_errors, dropped_off_topic, returned_before_filter}`，供不想解析英文 warnings 的智能体直接读取。
 
 加 `--core` 时返回共享形状：
 
@@ -177,11 +183,38 @@ python run.py --action fetch --url "https://example.org/article" --root <WS>
 
 ---
 
+## research 输出
+
+`research --query` 先宽召回，再集中读取少数不同 host。新增字段：
+
+| 字段 | 含义 |
+|---|---|
+| `intent` | 关键词分类器给出的 `{intent, confidence, signals}` |
+| `strategy` | `{breadth, search_pages, targeted_site, targeted_sites, targeted_by_site, official_entries, focus_*}` |
+| `seeds` | 入选结果及 `authority_tier`、`authority_score`、`reason` |
+| `evidence` | `[{url, title, authority_tier, authors, published_at, date_source, passages, partial?}]` |
+| `freshness` | `{newest, oldest, dated_sources, undated_sources, newest_age_days, all_stale}` |
+| `answerability` | `{level, coverage, authority_level, partial_only, source_count, host_count, view_hosts, multi_view, stale, reason}` |
+| `skipped` | 未使用页面及 `code`（`robots_denied`、`browser_required`、`browser_required_low_value`、`no_matching_passage` 等） |
+
+宽召回里没有相关的高权威来源时，第二遍按顺序尝试：直接读取已知官方入口页
+（Python asyncio、Go 并发、Rust、MDN、微软 Wi-Fi 支持），再读站点自己的搜索页
+（微软支持、MDN），最后才对非中文问题发一次 `site:` 查询。前两条不依赖搜索引擎
+是否支持 `site:`。新闻题没有任何可用引擎结果时，会回退到中新网财经公开 RSS；
+带日期的标题与摘要标为 `feed_headline`，绝不扩写成伪造的全文；正文没有日期时，
+抓取到的页面继承 feed 的发布日期。每次聚焦抓取最多 8 秒且不重试，robots.txt 最多
+6 秒，避免一个不可达的来源拖垮整次调用。对比题至少需要
+两个独立全文视角；公众号摘要不算一个视角。
+对比题或技术题已经有两个权威全文来源时，纯公众号摘要会被跳过，而不是混进证据。
+HTTP 读不了的公众号文章仍只返回 `partial` 搜索摘要并明确警告，不伪造全文。
+所有句段都是带 URL 的第三方引用文本。
+
 ## 动作与退出码
 
 | 动作 | 用途 |
 |---|---|
 | `fetch` | 一个 URL 或关键词查询 → 页面 |
+| `research` | 宽召回 → 聚焦阅读 → 带引用的证据句段 |
 | `find` | 用站点自己的搜索页在站内检索 |
 | `feed` | 读取站点的 RSS/Atom，自动从页面里发现订阅地址 |
 | `clean` | 本地或远程 HTML/PDF/DOCX/XLSX/EPUB/CSV → Markdown |
@@ -291,7 +324,7 @@ python -m pytest tests -q
 npm run test:browser
 ```
 
-共 **228 个 Python 测试**加 **75 个浏览器测试**，全部离线通过。
+共 **332 个 Python 测试**加 **91 个浏览器测试**，全部离线通过。
 
 <details>
 <summary>测试覆盖了什么</summary>

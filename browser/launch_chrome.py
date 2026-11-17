@@ -11,6 +11,7 @@ import argparse
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -73,15 +74,30 @@ def find_chrome(explicit: str = "") -> str:
     )
 
 
-def launch_command(chrome: str, profile: Path, port: int) -> list[str]:
-    return [
+def launch_command(chrome: str, profile: Path, port: int | None) -> list[str]:
+    command = [
         chrome,
         f"--user-data-dir={profile}",
-        f"--remote-debugging-port={port}",
         "--no-first-run",
         "--no-default-browser-check",
         "about:blank",
     ]
+    if port is not None:
+        command[2:2] = [
+            f"--remote-debugging-port={port}",
+            # CDP has no authentication. Keep it on loopback even if Chrome's
+            # default changes in a future build.
+            "--remote-debugging-address=127.0.0.1",
+        ]
+    return command
+
+
+def free_port() -> int:
+    """Pick a free loopback port so the debug endpoint is not predictable."""
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        return int(probe.getsockname()[1])
 
 
 def wait_for_devtools(port: int, timeout: float = 15.0) -> bool:
@@ -103,18 +119,38 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--chrome", default="", help="path to chrome.exe / Chrome binary")
     parser.add_argument("--profile", default=str(default_profile()), help="profile directory")
-    parser.add_argument("--port", type=int, default=9222, help="DevTools port (default: 9222)")
+    parser.add_argument(
+        "--cdp",
+        action="store_true",
+        help="opt in to a DevTools port; off by default because CDP has no authentication",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=0,
+        help="DevTools port when --cdp is used; 0 picks a free loopback port",
+    )
     parser.add_argument("--dry-run", action="store_true", help="print the command and exit")
     parser.add_argument("--timeout", type=float, default=15.0, help="seconds to wait for DevTools")
     args = parser.parse_args(argv)
 
     chrome = find_chrome(args.chrome)
     profile = Path(args.profile).expanduser().resolve()
-    command = launch_command(chrome, profile, args.port)
+    use_cdp = bool(args.cdp or args.port)
+    port = (args.port or free_port()) if use_cdp else None
+    command = launch_command(chrome, profile, port)
 
     if args.dry_run:
         print(" ".join(f'"{part}"' if " " in part else part for part in command))
-        print(f"WEB_FORAGER_BROWSER_CDP=http://127.0.0.1:{args.port}")
+        if port is not None:
+            print(f"WEB_FORAGER_BROWSER_CDP=http://127.0.0.1:{port}")
+            print(
+                "CDP has no authentication; keep this loopback port private and "
+                "close the browser when finished.",
+                file=sys.stderr,
+            )
+        else:
+            print("CDP is off; pass --cdp to enable it.")
         return 0
 
     profile.mkdir(parents=True, exist_ok=True)
@@ -125,15 +161,28 @@ def main(argv: list[str] | None = None) -> int:
             pass
 
     child = subprocess.Popen(command, close_fds=True)
-    if wait_for_devtools(args.port, timeout=args.timeout):
+    if port is None:
+        print(f"Chrome is running with the dedicated profile: {profile}")
+        print("CDP is off. Sign in once and close the browser when finished;")
+        print("later browser runs reuse the profile. Pass --cdp only if you need")
+        print("to attach over DevTools.")
+        return 0
+
+    assert port is not None
+    if wait_for_devtools(port, timeout=args.timeout):
         print(f"Chrome is ready with the dedicated profile: {profile}")
-        print(f"WEB_FORAGER_BROWSER_CDP=http://127.0.0.1:{args.port}")
+        print(f"WEB_FORAGER_BROWSER_CDP=http://127.0.0.1:{port}")
+        print(
+            "CDP has no authentication; keep this loopback port private and "
+            "close the browser when finished.",
+            file=sys.stderr,
+        )
         print("Sign in once in that window; later runs reuse the profile.")
         print("Ctrl+C here stops this launcher; the browser keeps running.")
         return 0
 
     print(
-        f"Chrome started (pid {child.pid}) but DevTools did not answer on port {args.port}.\n"
+        f"Chrome started (pid {child.pid}) but DevTools did not answer on port {port}.\n"
         "Close other Chrome windows using the same profile, or choose another --port.",
         file=sys.stderr,
     )

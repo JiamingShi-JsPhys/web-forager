@@ -7,6 +7,10 @@ fetch
     ``--url URL``   fetch one page and return metadata, Markdown and tables
     ``--query TEXT`` search (360+Bing by default), then fetch the top results
 
+research
+    ``--query TEXT`` broad recall, then read a few authoritative sources and
+    return only the passages that match the query, with citations
+
 clean
     ``--input file``       clean a local HTML/PDF/DOCX/XLSX/EPUB/CSV file
     ``--url URL``          fetch a page/document and clean it
@@ -47,10 +51,11 @@ import sys
 from pathlib import Path
 
 _PLUGIN_ROOT = Path(__file__).resolve().parent
+MAX_LOCAL_BYTES = 16 * 1024 * 1024
 if str(_PLUGIN_ROOT) not in sys.path:
     sys.path.insert(0, str(_PLUGIN_ROOT))
 
-from scripts import bilibili, documents, engine, pdf as pdf_mod, scholar, sitemap  # noqa: E402
+from scripts import bilibili, documents, engine, pdf as pdf_mod, research, scholar, sitemap  # noqa: E402
 
 
 def _reconfigure_stdio() -> None:
@@ -77,11 +82,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--action",
         required=True,
-        choices=["fetch", "find", "feed", "clean", "bili", "surf", "scholar", "map", "doctor"],
+        choices=["fetch", "research", "find", "feed", "clean", "bili", "surf", "scholar", "map", "doctor"],
         help="operation to run",
     )
     parser.add_argument("--url", help="target URL, or a Bilibili BV/av id (fetch/clean/bili/surf/map)")
-    parser.add_argument("--query", help="keyword query (fetch/bili/surf/scholar)")
+    parser.add_argument("--query", help="keyword query (fetch/research/bili/surf/scholar)")
     parser.add_argument("--site", help="domain or base URL to search inside (find)")
     parser.add_argument("--input", dest="input_path", help="local HTML/PDF/DOCX/XLSX/EPUB/CSV file (clean)")
     parser.add_argument(
@@ -104,7 +109,19 @@ def build_parser() -> argparse.ArgumentParser:
         default="auto",
         help="search backend: auto=360+Bing (mostly-CJK queries: 360+Sogou+WeChat); all=every engine (default: auto)",
     )
-    parser.add_argument("--num-results", type=int, default=8, help="search results to request (default: 8)")
+    parser.add_argument("--num-results", type=int, default=8, help="search results to request (default: 8; research: recall pool)")
+    parser.add_argument(
+        "--focus",
+        type=int,
+        default=3,
+        help="research: distinct sources to read in full (default: 3)",
+    )
+    parser.add_argument(
+        "--focus-chars",
+        type=int,
+        default=40_000,
+        help="research: maximum Markdown chars read per focused page (default: 40000)",
+    )
     parser.add_argument(
         "--serial-engines",
         action="store_true",
@@ -181,6 +198,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="DANGEROUS: same as --robots-policy ignore (only for resources you are authorised to access)",
     )
     parser.add_argument(
+        "--query-robots",
+        choices=("respect", "warn", "ignore"),
+        default=None,
+        help=(
+            "policy for search-engine and scholarly query endpoints "
+            "(default: WEB_FORAGER_QUERY_ROBOTS or warn). These endpoints "
+            "are not target pages; warn reads a disallowed one and records the "
+            "override, respect refuses it, ignore skips the check. MCP does not "
+            "expose this switch to the model."
+        ),
+    )
+    parser.add_argument(
         "--allow-private",
         action="store_true",
         help=(
@@ -248,6 +277,7 @@ def build_config(args: argparse.Namespace) -> engine.FetchConfig:
         max_chars=args.max_chars,
         respect_robots=not args.ignore_robots,
         robots_policy="ignore" if args.ignore_robots else args.robots_policy,
+        query_robots=args.query_robots or engine._query_robots_from_env(),
         render=args.render,
         include_tables=not args.no_tables,
         keep_links=args.keep_links,
@@ -427,6 +457,20 @@ def _envelope(action: str, payload: dict, args: argparse.Namespace) -> dict:
     return engine.build_envelope(action, payload, full_results=bool(getattr(args, "full_results", False)))
 
 
+def cmd_research(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
+    if not args.query:
+        raise ValueError("--action research needs --query")
+    payload = research.research(
+        args.query,
+        config,
+        engine_name=args.engine,
+        focus=args.focus,
+        breadth=args.num_results,
+        focus_chars=args.focus_chars,
+    )
+    return _envelope("research", payload, args)
+
+
 def cmd_find(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
     if not args.site:
         raise ValueError("--action find needs --site")
@@ -543,6 +587,11 @@ def cmd_clean(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
             path = Path(args.input_path)
             if not path.is_file():
                 raise ValueError(f"input file not found: {path}")
+            if path.stat().st_size > MAX_LOCAL_BYTES:
+                raise ValueError(
+                    f"input file is larger than {MAX_LOCAL_BYTES // (1024 * 1024)} MiB; "
+                    "web-forager does not read unbounded local files"
+                )
             data = path.read_bytes()
             source = str(path)
             if pdf_mod.is_pdf(data):
@@ -568,7 +617,12 @@ def cmd_clean(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
         else:
             if sys.stdin.isatty():
                 raise ValueError("--action clean needs --input, --url, or HTML on stdin")
-            data = sys.stdin.buffer.read()
+            data = sys.stdin.buffer.read(MAX_LOCAL_BYTES + 1)
+            if len(data) > MAX_LOCAL_BYTES:
+                raise ValueError(
+                    f"stdin is larger than {MAX_LOCAL_BYTES // (1024 * 1024)} MiB; "
+                    "web-forager does not read unbounded input"
+                )
             source = "stdin"
             if pdf_mod.is_pdf(data):
                 return _pdf_document(data, source, "", config)
@@ -737,6 +791,8 @@ def main(argv: list[str] | None = None) -> int:
         config = build_config(args)
         if args.action == "fetch":
             document = cmd_fetch(args, config)
+        elif args.action == "research":
+            document = cmd_research(args, config)
         elif args.action == "find":
             document = cmd_find(args, config)
         elif args.action == "feed":

@@ -6,7 +6,7 @@
 
 **简体中文** · [English](README.md)
 
-**版本：** 1.3.0 ｜ **许可：** MIT ｜ **Python：** 3.10+ ｜ **Node：** 18+（浏览器模式）
+**版本：** 1.3.1 ｜ **许可：** MIT ｜ **Python：** 3.10+ ｜ **Node：** 18+（浏览器模式）
 
 > 本插件仅供学习与研究用途。使用前请阅读[完整法律声明](#完整法律声明)。
 
@@ -51,8 +51,8 @@
 - **一个引擎，所有内容类型。** HTML、PDF、DOCX、XLSX、EPUB、CSV、RSS/Atom、站点地图、B 站与渲染页面都返回同样四个字段——`metadata`、`markdown`、`tables`、`warnings`——调用方不需要按来源分支。
 - **合规在抓取器内部，不是 README 里的承诺。** robots.txt、按站点限速、响应体积上限、重定向次数上限与可联系的 User-Agent 对每个请求生效，搜索、sitemap 与 surf 的每一跳也不例外。
 - **缺少组件时降级，而不是崩溃。** 没有桥是退出码 3，缺 Playwright 是 6，缺 `pypdf` 是 7，站点没有 sitemap 是带说明的空结果，验证页会报告 `verification_required`，而不是被当成正文交出去。
-- **如实报告读到了什么。** `engine_report` 列出每个引擎的耗时与错误，`skipped` 列出每条读不到的结果，`degraded` 表示页面读到了但剧本没找到目标，抓取文本带 `trust: "untrusted"`，看起来像提示词时还会给出 `injection_flags`。
-- **结果有排序，也有去重。** 按覆盖度、标题命中、域名先验与摘要时效排序；每个域名最多两条，来源不足时用溢出的结果补满；首轮过少时用简化查询重试一次。
+- **如实报告读到了什么。** `engine_report` 列出每个引擎的耗时与错误，`skipped` 列出每条读不到的结果，`degraded` 表示页面读到了但剧本没找到目标，抓取文本带 `trust: "untrusted"`；看起来像提示词时还会给出 `injection_findings`，其中包含规则码、严重级别、字符位置与命中的原文片段。
+- **只有一个引擎应答时也会排序。** 覆盖度、标题与短语命中、域名先验与摘要时效共同决定顺序；重复 URL 会先规范化（`utm_*`、片段、`www.`、末尾斜杠），多引擎同时命中的结果获得 RRF 加分，轻量词形归一让 `injection` 能遇到 `injections`。结果必须包含完整短语，或至少两个有意义的查询词；中文教程只重复一个英文产品名时会被标为 `language_match: false`，真有足够相关结果时直接剔除。每个域名最多两条，来源不足时用溢出结果补满；首轮过少时用简化查询重试一次。载荷里的 `search_quality` 会统计相关、跑题与语言不匹配的数量。
 - **脚本壳会渲染，但有预算。** 服务器只返回极少的 HTML 时，`--render auto` 会先用 Playwright 渲染一次再抽取；`fetch --query` 与 `surf` 每次最多两页。
 
 ---
@@ -77,7 +77,7 @@
 https://github.com/JiamingShi-JsPhys/web-forager
 ```
 
-在末尾加 `#v1.3.0` 可以把安装固定到本次发布；去掉则跟随默认分支。
+在末尾加 `#v1.3.1` 可以把安装固定到本次发布；去掉则跟随默认分支。
 
 ## 方法三：用命令安装
 
@@ -157,6 +157,16 @@ python run.py --action fetch --url "https://example.org/article"
 python run.py --action fetch --query "城市漫步 攻略" --num-results 8 --max-pages 3
 ```
 
+宽召回，再只读权威来源并抽取证据
+
+```bash
+python run.py --action research --query "Python 3.12 asyncio.TaskGroup 默认异常处理" --focus 3
+```
+
+`research` 按相关性和明确的权威层级选源；宽召回里没有权威答案时，追加一次
+`site:` 官方文档检索或 arXiv 标题检索；只读少数不同 host，返回带 URL 的匹配句段和
+`answerability` 结论。证据不足时返回 `low` / `none`，不编造。
+
 一篇论文：不碰搜索结果页
 
 ```bash
@@ -170,6 +180,7 @@ python run.py --action scholar --source doi --query "10.1038/nature14539"
 | 你手上有 | 用这个 |
 |---|---|
 | 一个 URL 或一个关键词 | `--action fetch` |
+| 一个需要引用证据的问题 | `--action research` |
 | 一个可信站点，但搜索引擎不可用 | `--action find --site <HOST> --query <TEXT>` |
 | 一个博客或新闻站 | `--action feed --url <SITE>` |
 | 一个 PDF、DOCX、XLSX、EPUB 或 CSV | `--action clean --input <FILE>` |
@@ -198,13 +209,13 @@ python run.py --action scholar --source doi --query "10.1038/nature14539"
 }
 ```
 
-HTTP 服务暴露十个工具（`web_fetch`、`web_search`、`web_surf`、`web_scholar`、`web_map`、`web_bilibili`、`web_clean`、`web_doctor`、`web_find`、`web_feed`）；浏览器服务暴露四个（`browser_list`、`browser_run`、`browser_session`、`browser_doctor`）。
+HTTP 服务暴露十个工具（`web_fetch`、`web_search`、`web_research`、`web_surf`、`web_scholar`、`web_map`、`web_bilibili`、`web_doctor`、`web_find`、`web_feed`）；浏览器服务暴露四个（`browser_list`、`browser_run`、`browser_session`、`browser_doctor`）。
 
-两个开关能让一次搜索变便宜：`max_pages: 0` 只返回结果列表、不抓正文；`respect_robots: false` 读取 robots.txt 禁止的页面，只用于你有权访问的资源。`web_search` 还会返回 `engine_report`，以及结果不含查询词时的 `warnings`。
+MCP 调用不能放宽安全边界：没有任何工具参数能关掉 robots、改注入闸门、设代理、指定浏览器桥命令或允许写操作。本地文件 `clean` 只在命令行提供，不是 MCP 工具。一个开关能让搜索变便宜：`max_pages: 0` 只返回结果列表、不抓正文。`web_search` 还会返回 `engine_report`，以及结果不含查询词时的 `warnings`。
 
 ### 浏览器模式（可选）
 
-需要 Node.js 18+ 与一个桥命令，默认只读。用 `python browser/launch_chrome.py` 登录一次，再加 `--backend cdp`；八个剧本、各自的开关、`--strict-robots`、storage-state 与成本控制都在[完整参考](docs/REFERENCE_zh.md#浏览器模式)里。HTTP 搜索已经找到公众号文章、却被 robots.txt 与环境校验挡住时，就用 `wechat-dig`。
+需要 Node.js 18+ 与一个桥命令，默认只读。用 `python browser/launch_chrome.py` 登录一次（CDP 默认关闭，只打开专用配置目录），然后以默认后端运行浏览器，复用该配置。确实需要 DevTools 接入时，才给 launcher 加 `--cdp`，并给剧本加 `--backend cdp`。八个剧本、各自的开关、`--strict-robots`、storage-state 与成本控制都在[完整参考](docs/REFERENCE_zh.md#浏览器模式)里。HTTP 搜索已经找到公众号文章、却被 robots.txt 与环境校验挡住时，就用 `wechat-dig`。
 
 ---
 
@@ -262,7 +273,7 @@ flowchart LR
     M --> SM["robots Sitemap / sitemap index / .xml.gz"]
     W --> HTTP
     B --> HTTP
-    SEARCH --> RANK["排序 + 去重<br/>覆盖度、标题、域名先验、时效"]
+    SEARCH --> RANK["排序 + 去重<br/>覆盖度、短语、语言、时效"]
     RANK --> HTTP["robots.txt 检查<br/>按站点限速"]
     HTTP --> EXT
     EXT --> MD["Markdown + 元数据 + 表格 + 分块"]
@@ -306,7 +317,7 @@ warnings:
 
 ```text
 web-forager/
-├── run.py                 # 一个 CLI 入口：fetch、find、feed、clean、surf、scholar、map、bili、doctor
+├── run.py                 # 一个 CLI 入口：fetch、research、find、feed、clean、surf、scholar、map、bili、doctor
 ├── mcp_server.py          # stdio JSON-RPC，十个 HTTP 工具
 ├── scripts/               # 引擎、抽取器、搜索解析器、robots、缓存、不可信内容筛查
 ├── browser/               # Node 浏览器模式：run.js、MCP 服务、剧本、桥、配置启动器
@@ -348,8 +359,17 @@ web-forager/
 
 - **拒绝私有目标。** 环回、RFC 1918、链路本地（含 `169.254.169.254`）、CGNAT 及其 IPv6 形式，在建立连接前就被拒绝，并且对每一次重定向再查一遍，公共 URL 无法把客户端弹进局域网。`--allow-private` 只服务本地夹具与可信内网工具，默认关闭。浏览器侧把同一道检查装成请求过滤器，恶意页面无法在浏览器内探测 `http://127.0.0.1:...`。
 - **robots.txt 是策略，不是锁。** 默认 `--robots-policy respect` 会拒绝被禁止的路径；`warn` 读取后把 `compliance.robots_overridden: true` 写进记录；`ignore` 则记录「未查 robots」。被拒会如实报告给调用方——它不是让你换一个不查 robots 的工具重抓同一 URL 的信号。
+- **查询接口有单独的策略。** 搜索引擎与学术 API 不是目标页，因此走 `--query-robots`（或环境变量 `WEB_FORAGER_QUERY_ROBOTS`），默认 `warn`。Bing、360、搜狗与 arXiv 导出接口都禁止各自的查询路径，所以默认会读取并在引擎报告里记录 `query_robots: warn`；`respect` 会拒绝，`ignore` 跳过检查。只有用户能选，MCP 绝不接受模型传入该开关。
 - **浏览器使用自己的配置目录。** 自带桥把状态存在 `~/.web-forager/browser/profile`，不是你的日常浏览器。`browser/launch_chrome.py` 会在这个 profile 上启动 Chrome；`--save-storage-state` 写出的 Playwright 状态文件权限为 `0600`（落在 `--root` 内会被拒绝）。经 CDP 接入个人浏览器仍然可用，但运行结果会标 `shared_browser: true` 并附警告：那个配置里的每个 Cookie 与登录态，剧本打开的页面都能碰到。
-- **抓取到的文本是数据，记录里也这么写。** 每条记录带 `trust: "untrusted"`。页面里出现指令形状的文字——「忽略之前的指令」、伪造 system 标签、`curl ... | sh`、要求发送密钥或环境变量——对应代码会写进 `injection_flags`，并在 `warnings` 第一条给出说明。`--input-gate strict` 则干脆不交付正文。这是一道筛子而不是沙箱：宿主仍须避免让不可信内容、私有数据与对外请求同时出现在一个自主循环里。
+- **抓取到的文本是数据，记录里也这么写。** 每条记录带 `trust: "untrusted"`。页面里出现指令形状的文字时，`injection_findings` 会记录规则码、严重级别、字符位置与一小段命中原文，`warnings` 第一条会重复最多三条证据。硬规则（伪造 system 标签、要求外传密钥、`curl ... | sh`、`rm -rf /`）才可能让 `--input-gate strict` 扣留正文；软规则（“忽略之前的指令”、角色切换）只报告、不扣留，因为论文与安全文章会合法引用这些话术。扫描按重叠窗口覆盖全文，发生在 `max_chars` 截断之前。这是一道筛子而不是沙箱：宿主仍须避免让不可信内容、私有数据与对外请求同时出现在一个自主循环里。
+
+### 隐私与本地状态
+
+- **没有遥测、没有账号、没有 API Key。** 插件不会把使用数据发到任何地方；它只向你指定的搜索引擎、学术 API 或目标站点发出请求。查询词与目标 URL 会为完成该请求而离开本机，这是检索本身的一部分。
+- **落盘状态只在本机。** 开启缓存时，页面正文与响应元数据在 `~/.web-forager/cache` 保留一小时；会设置 Cookie 的响应不写入缓存，`Authorization` / `Proxy-Authorization` 头会被剥离。POSIX 下缓存目录为 `0700`、文件为 `0600`。
+- **会话与浏览器状态同样在本机。**  Surf 会话（`~/.web-forager/sessions`）保存访问过的 URL；浏览器会话在 `~/.web-forager/browser/sessions`；`--save-storage-state` 以 `0600` 写入 Cookie；专用浏览器配置目录为 `0700`。`--verbose` 只记录协议、主机与路径，查询串和片段会被丢弃，带签名的 URL 不会把令牌打进 stderr。
+- **DevTools 端口默认关闭。** `browser/launch_chrome.py` 默认只打开专用配置目录；加 `--cdp` 才把 Chrome 的 CDP 端口绑在环回地址，并默认随机选空闲端口（`--port 9222` 可固定）。开着时任何本机进程仍能接入，所以端口只留在本机，用完关闭浏览器。
+- **不以个人信息为目标。** 人肉搜索防护会拒绝明确的个人画像查询，并对裸姓名给出警告；它按意图判断，不构成保证。不要用本工具收集或拼装可识别个人的私密信息。
 
 ---
 
@@ -378,7 +398,7 @@ python -m pytest
 node --test "browser/tests/*.test.js"
 ```
 
-258 个 Python 测试与 87 个浏览器测试，全部离线。Python 套件会起一个临时本地 HTTP 站点，提供 robots.txt、文章、PDF/Office 文件、订阅源、sitemap、搜索结果页与多跳 surf 页面；浏览器套件用假后端与说同一套线协议的假桥，再加真实页面导出的快照。CI 从仓库克隆里跑两套；发布归档不含测试目录。
+332 个 Python 测试与 91 个浏览器测试，全部离线。Python 套件会起一个临时本地 HTTP 站点，提供 robots.txt、文章、PDF/Office 文件、订阅源、sitemap、搜索结果页与多跳 surf 页面；浏览器套件用假后端与说同一套线协议的假桥，再加真实页面导出的快照。CI 从仓库克隆里跑两套；发布归档不含测试目录。
 
 ## 完整法律声明
 
@@ -420,7 +440,8 @@ web-forager 把读取公开可访问页面的过程自动化，仅用于学习�
 - **PDF 只读取文本层。** 扫描件需要 OCR，本插件不做。
 - **不绕过登录墙。** `zhihu-dig` 与 `xhs-dig` 会以 `login_required` 停下；请通过桥复用已登录的配置目录。
 - **公众号正文在 HTTP 模式下读不到。** robots.txt 禁止 `/s`，即使覆盖也会返回环境校验页。记录写成 `verification_required`；`wechat-dig` 只能在已通过该校验的配置里读到正文。
-- **robots.txt 不可达即拒绝。** 这是 RFC 的保守做法。`--ignore-robots` 仅用于你已获得明确授权的资源。浏览器模式只在 `--strict-robots` 下查 robots.txt，而记录里始终写明是否查过（`compliance.robots_checked`）。
+- **默认搜索会记录一次 robots 覆盖。** Bing、360、搜狗与 arXiv 导出接口都禁止各自的查询路径。`--query-robots` 默认 `warn`，所以搜索可用，但引擎报告会写明这次覆盖；把策略设为 `respect` 可拒绝被禁止的接口，`ignore` 则跳过检查。
+- **robots.txt 不可达即拒绝。** 这是 RFC 的保守做法。`--ignore-robots` 仅用于你已获得明确授权的资源。MCP 浏览器调用始终带 `--strict-robots`；命令行浏览器调用在 `--strict-robots` 下查 robots.txt，HTTP 与浏览器的每一次重定向都会复查。记录里始终写明是否查过（`compliance.robots_checked`）。
 
 ### 边缘情况
 

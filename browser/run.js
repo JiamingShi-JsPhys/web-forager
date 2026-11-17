@@ -13,7 +13,13 @@ const { makeContext } = require("./lib/context");
 const { ActorError, asActorError } = require("./lib/errors");
 const { resolveBridge } = require("./lib/bridge");
 const { doctorReport } = require("./lib/doctor");
-const { scan: scanUntrusted, warning: untrustedWarning, withheld } = require("./lib/untrusted");
+const {
+  scanFindings: scanUntrusted,
+  codes: injectionCodes,
+  hardCodes: hardInjectionCodes,
+  warning: untrustedWarning,
+  withheld,
+} = require("./lib/untrusted");
 
 const EXIT = {
   argument: 2,
@@ -299,17 +305,20 @@ async function main() {
   const gate = options.inputGate || "mark";
   for (const record of ctx.records) {
     if (gate === "off") continue;
-    const flags = scanUntrusted(`${record.markdown || ""}\n${(record.metadata || {}).title || ""}`);
+    const findings = scanUntrusted(
+      `${record.markdown || ""}\n${(record.metadata || {}).title || ""}`,
+    );
+    const flags = injectionCodes(findings);
+    const hard = hardInjectionCodes(findings);
     record.trust = "untrusted";
     record.injection_flags = flags;
-    if (flags.length) {
-      if (gate === "strict") {
-        record.markdown = "";
-        record.trust = "rejected";
-        record.warnings.unshift(withheld(flags));
-      } else {
-        record.warnings.unshift(untrustedWarning(flags));
-      }
+    record.injection_findings = findings;
+    if (hard.length && gate === "strict") {
+      record.markdown = "";
+      record.trust = "rejected";
+      record.warnings.unshift(withheld(hard, findings));
+    } else if (findings.length) {
+      record.warnings.unshift(untrustedWarning(flags, findings));
     }
   }
 

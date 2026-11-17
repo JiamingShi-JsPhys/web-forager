@@ -5,9 +5,14 @@ requests
   License: Apache License 2.0
   Copyright: Kenneth Reitz and contributors
 
+certifi
+  License: Mozilla Public License 2.0
+  Copyright: Kenneth Reitz and contributors
+
 beautifulsoup4
   License: MIT
   Copyright: Leonard Richardson
+  (transitive dependency: soupsieve - MIT, Isaac Muse)
 
 trafilatura
   License: Apache License 2.0

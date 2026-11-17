@@ -1,11 +1,14 @@
 # Core runtime (all Apache-2.0 or MIT; no GPL/AGPL anywhere)
-requests>=2.31
-beautifulsoup4>=4.12
-trafilatura>=1.6
+# certifi is a requests dependency; the floor avoids the compromised
+# emSign root CAs fixed in 2026.10.18.
+certifi>=2026.10.18
+requests>=2.33.0
+beautifulsoup4>=4.14.3
+trafilatura>=2.3.1
 
 # Optional: PDF text extraction (BSD-3-Clause).
 # Without it, PDF inputs return exit code 7 with a clear install hint.
-# pypdf>=4
+# pypdf>=6.21.4 (or 7.x); earlier versions have seven DoS advisories
 
 # Optional: JavaScript rendering (Apache-2.0).
 # Install the package, then: python -m playwright install chromium

@@ -8,9 +8,15 @@ optional dependency: when it is absent, callers receive a clear
 from __future__ import annotations
 
 import io
+import time
 from typing import Any
 
 PDF_MAGIC = b"%PDF-"
+# pypdf has had denial-of-service advisories around page-tree and xref parsing.
+# Keep the installed package current (>=6.21.4) and put a hard bound on the
+# work this module will do on an untrusted document.
+MAX_PAGES = 500
+MAX_SECONDS = 20.0
 
 
 class PdfError(Exception):
@@ -58,7 +64,12 @@ def extract(data: bytes) -> dict[str, Any]:
 
     pages: list[str] = []
     empty_pages = 0
+    truncated = False
+    deadline = time.monotonic() + MAX_SECONDS
     for index, page in enumerate(reader.pages, start=1):
+        if index > MAX_PAGES or time.monotonic() > deadline:
+            truncated = True
+            break
         try:
             text = page.extract_text() or ""
         except Exception as exc:  # a single damaged page should not kill the run
@@ -69,10 +80,18 @@ def extract(data: bytes) -> dict[str, Any]:
         pages.append(text)
 
     metadata = reader.metadata
+    warnings: list[str] = []
+    if truncated:
+        warnings.append(
+            f"PDF extraction stopped at {len(pages)} page(s) "
+            f"(limit: {MAX_PAGES} pages / {MAX_SECONDS:g} s)"
+        )
     return {
         "pages": pages,
         "page_count": len(pages),
         "empty_pages": empty_pages,
+        "truncated": truncated,
+        "warnings": warnings,
         "text": "\n\n".join(pages).strip(),
         "metadata": {
             "title": _meta_value(metadata, "/Title"),
@@ -100,6 +119,8 @@ def to_markdown(document: dict[str, Any], url: str = "") -> str:
     )
     if info:
         lines.extend([f"> {info}", ""])
+    for warning in document.get("warnings") or []:
+        lines.extend([f"> 警告：{warning}", ""])
     pages = document.get("pages") or []
     for index, text in enumerate(pages, start=1):
         if not text:

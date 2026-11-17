@@ -69,11 +69,25 @@ function normalize(data, name, playbook) {
 
 function saveSession(session) {
   const file = sessionPath(session.name);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  if (process.platform !== "win32") {
+    try {
+      fs.chmodSync(path.dirname(file), 0o700);
+    } catch (error) {
+      // Existing filesystems may not support POSIX modes.
+    }
+  }
   session.updated_at = nowIso();
   const temp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(temp, `${JSON.stringify(session, null, 2)}\n`, "utf8");
+  fs.writeFileSync(temp, `${JSON.stringify(session, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
   fs.renameSync(temp, file);
+  if (process.platform !== "win32") {
+    try {
+      fs.chmodSync(file, 0o600);
+    } catch (error) {
+      // A filesystem without POSIX modes should not break a saved session.
+    }
+  }
   return session;
 }
 

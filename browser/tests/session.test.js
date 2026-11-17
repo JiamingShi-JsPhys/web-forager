@@ -35,6 +35,9 @@ test("session round-trips through disk", () => {
     assert.equal(hasCaptured(loaded, "BV1aa411c7mD"), true);
     assert.equal(sessionPath("alpha").startsWith(home), true);
     assert.equal(fs.existsSync(sessionPath("alpha")), true);
+    if (process.platform !== "win32") {
+      assert.equal(fs.statSync(sessionPath("alpha")).mode & 0o777, 0o600);
+    }
   } finally {
     if (previous === undefined) delete process.env.WEB_FORAGER_BROWSER_HOME;
     else process.env.WEB_FORAGER_BROWSER_HOME = previous;

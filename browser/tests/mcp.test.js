@@ -74,6 +74,14 @@ test("the MCP server initializes, lists tools and answers calls", async () => {
     const names = list.result.tools.map((tool) => tool.name).sort();
     assert.deepEqual(names, ["browser_doctor", "browser_list", "browser_run", "browser_session"]);
 
+    // MCP must not expose a way for an agent to change the bridge command,
+    // write outside the workspace, skip robots, or relax the input gate.
+    const runTool = list.result.tools.find((tool) => tool.name === "browser_run");
+    const properties = Object.keys(runTool.inputSchema.properties || {});
+    for (const banned of ["bridge", "out", "root", "allowWrite", "inputGate", "strictRobots"]) {
+      assert.equal(properties.includes(banned), false, `${banned} must not be an MCP parameter`);
+    }
+
     const playbooks = await client.request("tools/call", { name: "browser_list", arguments: {} });
     const payload = JSON.parse(playbooks.result.content[0].text);
     assert.deepEqual(

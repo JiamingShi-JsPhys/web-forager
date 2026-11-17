@@ -5,7 +5,7 @@ Everything else is optional and degrades with a clear exit code and hint.
 
 | Capability | Package | Licence | Required? | Missing behaviour |
 |---|---|---|---|---|
-| HTTP, robots, search, surf, cache | `requests` | Apache-2.0 | yes | exit 1 with import error |
+| HTTP, robots, search, surf, cache | `requests`, `certifi` | Apache-2.0, MPL-2.0 | yes | exit 1 with import error |
 | HTML parsing and fallback Markdown | `beautifulsoup4` | MIT | yes | exit 1 with import error |
 | Preferred article extraction | `trafilatura` | Apache-2.0 | yes | falls back to BeautifulSoup |
 | JavaScript rendering | `playwright` | Apache-2.0 | optional | `--render always` exits 6; `auto` skips with a warning |

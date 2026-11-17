@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import gzip
+import io
 import json
 import subprocess
 import sys
@@ -33,7 +35,14 @@ class FakeFetcher:
         self.html = html
         self.calls: list[str] = []
 
-    def fetch(self, url: str, *, check_robots: bool = True) -> engine.HttpResponse:
+    def fetch(
+        self,
+        url: str,
+        *,
+        check_robots: bool = True,
+        use_cache: bool = True,
+        robots_policy: str | None = None,
+    ) -> engine.HttpResponse:
         self.calls.append(url)
         return engine.HttpResponse(
             url=url,
@@ -229,6 +238,66 @@ def test_search_pagination_requests_each_page() -> None:
     assert len(results) == 2  # duplicates across pages are removed
 
 
+def test_query_endpoints_default_to_the_recorded_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("WEB_FORAGER_QUERY_ROBOTS", raising=False)
+    assert engine.FetchConfig().query_robots == "warn"
+
+
+def test_search_endpoint_uses_the_query_robots_policy() -> None:
+    """Search is a query interface with its own policy, not a free pass."""
+
+    html = (FIXTURES / "search_360.html").read_text(encoding="utf-8")
+    seen: dict[str, object] = {}
+
+    class RecordingFetcher(FakeFetcher):
+        def fetch(
+            self,
+            url: str,
+            *,
+            check_robots: bool = True,
+            use_cache: bool = True,
+            robots_policy: str | None = None,
+        ) -> engine.HttpResponse:
+            seen.update(
+                check_robots=check_robots,
+                robots_policy=robots_policy,
+            )
+            return super().fetch(
+                url,
+                check_robots=check_robots,
+                use_cache=use_cache,
+                robots_policy=robots_policy,
+            )
+
+    config = engine.FetchConfig(query_robots="warn", delay=0)
+    engine._search_one("360", "Python 教程", config, 8, RecordingFetcher(html))
+    assert seen == {"check_robots": True, "robots_policy": "warn"}
+
+    seen.clear()
+    ignored = engine.FetchConfig(query_robots="ignore", delay=0)
+    engine._search_one("360", "Python 教程", ignored, 8, RecordingFetcher(html))
+    assert seen == {"check_robots": False, "robots_policy": "ignore"}
+
+
+def test_sitemap_gzip_expansion_is_capped(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sitemap, "MAX_DECOMPRESSED_BYTES", 1024)
+    bomb = gzip.compress(b"<urlset>" + (b"x" * 4096) + b"</urlset>")
+    response = engine.HttpResponse(
+        url="https://example.org/sitemap.xml.gz",
+        final_url="https://example.org/sitemap.xml.gz",
+        status=200,
+        headers={},
+        content=bomb,
+        text="",
+        encoding="utf-8",
+        content_type="application/xml",
+    )
+    with pytest.raises(engine.ExtractionError):
+        sitemap._decode_sitemap(response)
+
+
 def test_chunk_markdown_respects_headings_and_size() -> None:
     markdown = "# Alpha\n\n" + ("paragraph one. " * 20) + "\n\n# Beta\n\n" + ("paragraph two. " * 20)
     chunks = engine.chunk_markdown(markdown, size=120)
@@ -260,6 +329,21 @@ def test_pdf_still_works_after_document_branch() -> None:
     result = run_cli("--action", "clean", "--input", str(FIXTURES / "sample.pdf"))
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout)["content_type"] == "application/pdf"
+
+
+def test_pdf_extraction_stops_at_the_page_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    from pypdf import PdfWriter
+
+    writer = PdfWriter()
+    for _ in range(3):
+        writer.add_blank_page(width=72, height=72)
+    buffer = io.BytesIO()
+    writer.write(buffer)
+    monkeypatch.setattr(pdf, "MAX_PAGES", 1)
+    document = pdf.extract(buffer.getvalue())
+    assert document["truncated"] is True
+    assert document["page_count"] == 1
+    assert document["warnings"]
 
 
 def test_repeated_extraction_keeps_the_opening_paragraph() -> None:
@@ -310,19 +394,21 @@ def test_mcp_initialize_and_tools_list() -> None:
     names = {tool["name"] for tool in listed["result"]["tools"]}
     assert names == {
         "web_fetch",
+        "web_research",
         "web_search",
         "web_surf",
         "web_scholar",
         "web_map",
         "web_bilibili",
-        "web_clean",
         "web_doctor",
         "web_find",
         "web_feed",
     }
 
 
-def test_mcp_clean_tool_and_error_shape() -> None:
+def test_mcp_does_not_expose_the_local_clean_tool() -> None:
+    """web_clean reads arbitrary local files; it stays a user-only CLI action."""
+
     response = mcp_server.handle_request(
         {
             "jsonrpc": "2.0",
@@ -334,19 +420,6 @@ def test_mcp_clean_tool_and_error_shape() -> None:
             },
         }
     )
-    content = json.loads(response["result"]["content"][0]["text"])
-    assert content["action"] == "clean"
-    assert "Polite Crawling" in content["markdown"]
-
-    missing = mcp_server.handle_request(
-        {
-            "jsonrpc": "2.0",
-            "id": 4,
-            "method": "tools/call",
-            "params": {"name": "web_clean", "arguments": {"path": "does-not-exist.html"}},
-        }
-    )
-    assert missing["result"]["isError"] is True
-    error = json.loads(missing["result"]["content"][0]["text"])
-    assert error["ok"] is False
-    assert error["error"]["code"] == "ValueError"
+    assert "error" in response
+    assert response["error"]["code"] == -32602
+    assert "unknown tool" in response["error"]["message"]

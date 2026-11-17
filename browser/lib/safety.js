@@ -94,7 +94,33 @@ async function guardedGoto(ctx, url) {
   ctx.trace.push({ action: "goto", url, at: new Date().toISOString() });
   const result = await ctx.backend.goto(url);
   const finalUrl = result && result.url;
-  if (finalUrl) await assertPublicUrl(finalUrl, { allowPrivate });
+  if (finalUrl) {
+    await assertPublicUrl(finalUrl, { allowPrivate });
+    // A redirect is a second navigation. Check its target against robots too;
+    // otherwise an allowed URL can bounce into a disallowed path and still be
+    // captured while the record says robots was consulted.
+    if (ctx.options && ctx.options.strictRobots && finalUrl !== url) {
+      const { checkRobots } = require("./robots");
+      const decision = await checkRobots(finalUrl);
+      const entry = {
+        url: finalUrl,
+        robots_url: decision.robots_url,
+        status: decision.status,
+        allowed: decision.allowed,
+        note: decision.note || "",
+        final_url: true,
+      };
+      ctx.compliance.checks.push(entry);
+      ctx.compliance.robots_checked = true;
+      if (!decision.allowed) {
+        throw new ActorError(
+          "robots_denied",
+          `robots.txt disallows the redirect target ${finalUrl}`,
+          `${decision.robots_url}: ${decision.note || "matched a Disallow rule"}. Drop --strict-robots to browse without the check, or choose another target.`,
+        );
+      }
+    }
+  }
   return result;
 }
 

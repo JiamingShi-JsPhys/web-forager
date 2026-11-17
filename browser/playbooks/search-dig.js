@@ -27,7 +27,9 @@ module.exports = {
     let ranked = [];
     let source = "page";
     try {
-      const cards = await searchVideos(query, 20);
+      const cards = await searchVideos(query, 20, {
+        strictRobots: Boolean(ctx.options.strictRobots),
+      });
       if (cards.length) {
         ranked = rankByQuery(cards, query);
         source = "api";

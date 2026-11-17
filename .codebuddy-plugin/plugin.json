@@ -1,6 +1,6 @@
 {
   "name": "web-forager",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "Clean-room, robots-aware web information gathering: multi-engine search, HTML/PDF/Office/feed extraction, Bilibili/Zhihu/Xiaohongshu/WeChat reading, sitemaps and resumable surfing, plus a browser mode with eight read-only playbooks. CLI + two MCP servers.",
   "author": {
     "name": "Jiaming Shi"

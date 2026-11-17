@@ -51,7 +51,7 @@ from bs4.element import NavigableString, Tag
 
 from . import untrusted
 
-__version__ = "1.3.0"
+__version__ = "1.3.1"
 
 DEFAULT_USER_AGENT = (
     f"WebForager/{__version__} (Information Gathering; "
@@ -162,6 +162,17 @@ def _allow_private_from_env() -> bool:
     )
 
 
+def _query_robots_from_env() -> str:
+    """User-level policy for query endpoints (search, scholarly APIs).
+
+    This is deliberately an environment/CLI decision, not an MCP parameter:
+    a fetched page must never be able to turn robots off for the agent.
+    """
+
+    value = os.environ.get("WEB_FORAGER_QUERY_ROBOTS", "warn").strip().lower()
+    return value if value in ("respect", "warn", "ignore") else "warn"
+
+
 @dataclass
 class FetchConfig:
     """Runtime knobs for one CLI invocation."""
@@ -187,6 +198,10 @@ class FetchConfig:
     max_links: int = 20
     follow: str = "same-site"      # same-site | all | none
     search_engine: str = "auto"
+    # Query interfaces (search engines, scholarly APIs) have their own policy.
+    # warn reads a disallowed endpoint and records the override; respect
+    # refuses it; ignore skips the check. MCP never lets the model choose.
+    query_robots: str = field(default_factory=_query_robots_from_env)
     search_pages: int = 1
     # Engines are different hosts, so they may run at once without breaking the
     # per-origin delay. Set False for a strictly serial diagnostic run.
@@ -208,6 +223,8 @@ class FetchConfig:
             raise ValueError("render must be auto, never or always")
         if self.robots_policy not in ("respect", "warn", "ignore"):
             raise ValueError("robots_policy must be respect, warn or ignore")
+        if self.query_robots not in ("respect", "warn", "ignore"):
+            raise ValueError("query_robots must be respect, warn or ignore")
         if self.input_gate not in ("off", "mark", "strict"):
             raise ValueError("input_gate must be off, mark or strict")
         if self.follow not in ("same-site", "all", "none"):
@@ -451,6 +468,7 @@ def _guarded_request(
     *,
     allow_private: bool = False,
     max_redirects: int = 5,
+    before_request: Any = None,
     **kwargs: Any,
 ) -> Any:
     """GET ``url`` and follow redirects one hop at a time, checking each target.
@@ -463,6 +481,8 @@ def _guarded_request(
     current = url
     for _ in range(max_redirects + 1):
         assert_public_url(current, allow_private=allow_private)
+        if before_request is not None:
+            before_request(current)
         response = getter(current, allow_redirects=False, **kwargs)
         location = response.headers.get("Location") if response.headers else None
         if response.status_code in (301, 302, 303, 307, 308) and location:
@@ -689,7 +709,10 @@ class RobotsCache:
                 robots_url,
                 allow_private=self.config.allow_private,
                 headers=headers,
-                timeout=min(max(self.config.timeout, 1.0), 10.0),
+                timeout=(
+                    min(max(self.config.timeout, 1.0), 3.0),
+                    min(max(self.config.timeout, 1.0), 6.0),
+                ),
             )
         except requests.RequestException as exc:
             # RFC 9309 §2.3.1: an unreachable robots.txt is treated as a
@@ -814,12 +837,24 @@ class HttpResponse:
     encoding: str
     content_type: str
     from_cache: bool = False
+    robots_overridden: bool = False
 
 
 def _cache_root(config: FetchConfig) -> Path:
     if config.cache_dir:
         return Path(config.cache_dir).expanduser()
     return Path.home() / ".web-forager" / "cache"
+
+
+def _private_path(path: Path, mode: int) -> None:
+    """Best-effort owner-only permissions for local state on POSIX."""
+
+    if os.name == "nt":
+        return
+    try:
+        path.chmod(mode)
+    except OSError:
+        pass
 
 
 def _cache_key(url: str) -> str:
@@ -880,20 +915,42 @@ class HttpFetcher:
         except Exception:
             pass
 
+    def clone(self) -> "HttpFetcher":
+        """A per-thread fetcher sharing robots and rate limits but not a session.
+
+        ``requests.Session`` is not thread-safe, so parallel focus reads use one
+        clone per worker.  The robots cache and rate limiter are shared, which
+        keeps politeness global; cookies already collected are copied once.
+        """
+
+        other = HttpFetcher(self.config)
+        other.robots = self.robots
+        other.limiter = self.limiter
+        try:
+            other.session.cookies.update(self.session.cookies)
+        except Exception:
+            pass
+        return other
+
     # -- robots ---------------------------------------------------------
 
-    def assert_allowed(self, url: str) -> RobotsPolicy:
-        """Raise RobotsDenied when policy is ``respect`` and robots forbids it.
+    def assert_allowed(
+        self, url: str, robots_policy: Optional[str] = None
+    ) -> RobotsPolicy:
+        """Raise RobotsDenied when the effective policy is ``respect``.
 
         ``warn`` returns the denying policy instead of raising, so the caller
         can still read the page and must record ``robots_overridden: true``.
+        ``robots_policy`` lets a query interface use its own policy without
+        changing the policy for target pages.
         """
 
-        if not self.config.respect_robots or self.config.robots_policy == "ignore":
+        effective = (robots_policy or self.config.robots_policy).strip().lower()
+        if not self.config.respect_robots or effective == "ignore":
             return RobotsPolicy.allowing_all(note="robots checking disabled by policy")
         policy = self.robots.policy_for(url)
         if not policy.allowed(url):
-            if self.config.robots_policy == "warn":
+            if effective == "warn":
                 return policy
             detail = policy.note or policy.source or "robots.txt"
             raise RobotsDenied(f"robots.txt disallows {url} ({detail})")
@@ -902,7 +959,12 @@ class HttpFetcher:
     # -- main entry -----------------------------------------------------
 
     def fetch(
-        self, url: str, *, check_robots: bool = True, use_cache: bool = True
+        self,
+        url: str,
+        *,
+        check_robots: bool = True,
+        use_cache: bool = True,
+        robots_policy: Optional[str] = None,
     ) -> HttpResponse:
         """Fetch one URL.
 
@@ -914,8 +976,16 @@ class HttpFetcher:
         url = normalize_url(url)
         assert_public_url(url, allow_private=self.config.allow_private)
         policy: Optional[RobotsPolicy] = None
+        overridden = {"value": False}
         if check_robots:
-            policy = self.assert_allowed(url)
+            policy = self.assert_allowed(url, robots_policy)
+            if policy is not None and not policy.allowed(url):
+                overridden["value"] = True
+
+        def robots_guard(target: str) -> None:
+            checked = self.assert_allowed(target, robots_policy)
+            if checked is not None and not checked.allowed(target):
+                overridden["value"] = True
 
         cached = self._read_cache(url) if use_cache else None
         if cached is not None:
@@ -932,7 +1002,10 @@ class HttpFetcher:
                     url,
                     allow_private=self.config.allow_private,
                     max_redirects=self.session.max_redirects,
-                    timeout=self.config.timeout,
+                    before_request=robots_guard if check_robots else None,
+                    # A connect timeout per resolved address: a blocked
+                    # address must not consume the full read budget.
+                    timeout=(min(self.config.timeout, 3.0), self.config.timeout),
                     stream=True,
                 )
             except requests.RequestException as exc:
@@ -954,6 +1027,7 @@ class HttpFetcher:
                 raise FetchError(f"HTTP {status} for {url}")
 
             result = self._read_response(response, url)
+            result.robots_overridden = overridden["value"]
             if use_cache:
                 self._write_cache(url, result)
             return result
@@ -984,7 +1058,7 @@ class HttpFetcher:
         content_type = str(meta.get("content_type") or "text/html")
         encoding = str(meta.get("encoding") or "utf-8")
         text = body.decode(encoding, errors="replace")
-        log(f"cache hit: {url}", self.config)
+        log(f"cache hit: {redact_url_for_log(url)}", self.config)
         return HttpResponse(
             url=url,
             final_url=str(meta.get("final_url") or url),
@@ -995,6 +1069,7 @@ class HttpFetcher:
             encoding=encoding,
             content_type=content_type,
             from_cache=True,
+            robots_overridden=bool(meta.get("robots_overridden", False)),
         )
 
     def _write_cache(self, url: str, response: HttpResponse) -> None:
@@ -1013,8 +1088,10 @@ class HttpFetcher:
         }
         meta_path, body_path = self._cache_paths(url)
         try:
-            meta_path.parent.mkdir(parents=True, exist_ok=True)
+            meta_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            _private_path(meta_path.parent, 0o700)
             body_path.write_bytes(response.content)
+            _private_path(body_path, 0o600)
             meta_path.write_text(
                 json.dumps(
                     {
@@ -1024,6 +1101,7 @@ class HttpFetcher:
                         "headers": safe_headers,
                         "content_type": response.content_type,
                         "encoding": response.encoding,
+                        "robots_overridden": bool(response.robots_overridden),
                     },
                     ensure_ascii=False,
                 ),
@@ -1107,11 +1185,20 @@ class HttpFetcher:
         self.limiter.wait(url)
         response: Optional[requests.Response] = None
         try:
+            def resolve_robots_guard(target: str) -> None:
+                if self.config.query_robots != "ignore":
+                    self.assert_allowed(target, self.config.query_robots)
+
             response = _guarded_request(
                 self.session.get,
                 url,
                 allow_private=self.config.allow_private,
                 max_redirects=self.session.max_redirects,
+                before_request=(
+                    resolve_robots_guard
+                    if self.config.query_robots != "ignore"
+                    else None
+                ),
                 timeout=self.config.timeout,
                 stream=True,
             )
@@ -1444,6 +1531,7 @@ def search(
     limit: Optional[int] = None,
     fetcher: Optional[HttpFetcher] = None,
     report: Optional[list[dict[str, Any]]] = None,
+    quality: Optional[dict[str, Any]] = None,
 ) -> list[dict[str, str]]:
     """Return ``[{title, url, snippet, source}]`` for a keyword query.
 
@@ -1454,11 +1542,14 @@ def search(
 
     Pass ``report`` to collect one entry per engine tried — name, whether it
     answered, how many results and how long it took — so a caller in a hostile
-    network can see which backend is actually reachable.
+    network can see which backend is actually reachable.  Pass ``quality`` to
+    receive counts for the rows removed by the relevance filter.
 
-    Search endpoints are query interfaces, not target pages.  robots.txt
-    therefore applies to the *result pages* we later fetch, not to the query
-    request itself.  Queries are still rate-limited per host.
+    Search endpoints are query interfaces, not target pages.  Their robots
+    policy is ``config.query_robots`` (default ``warn``): a disallowed query
+    endpoint is read and the override is recorded; ``respect`` refuses it and
+    ``ignore`` skips the check.  Result pages we later fetch still go through
+    the normal target-page robots policy.  Queries are rate-limited per host.
     """
 
     query = (query or "").strip()
@@ -1508,6 +1599,8 @@ def search(
     ) -> tuple[dict[str, Any], Optional[list[dict[str, str]]]]:
         started = time.monotonic()
         entry: dict[str, Any] = {"engine": name}
+        if config.query_robots != "respect":
+            entry["query_robots"] = config.query_robots
         if fallback:
             entry["fallback"] = True
         if qtext != query:
@@ -1531,6 +1624,7 @@ def search(
             ]
             entry.update(
                 ok=True,
+                status="ok" if items else "empty",
                 results=len(items),
                 ms=round((time.monotonic() - started) * 1000),
             )
@@ -1539,6 +1633,7 @@ def search(
             errors.append(f"{name}: {exc}")
             entry.update(
                 ok=False,
+                status=_engine_failure_status(exc),
                 results=0,
                 error=str(exc),
                 ms=round((time.monotonic() - started) * 1000),
@@ -1578,13 +1673,48 @@ def search(
     if not groups:
         raise FetchError("all search engines failed: " + "; ".join(errors) or "no engine available")
 
-    if len(groups) == 1:
-        merged = groups[0][1]
-    else:
-        merged = merge_search_results(groups, query, limit=limit)
-    return diversify_results(
+    # Rank even when only one engine answered.  The old single-group path
+    # returned engine order untouched, which is how an Excel INDIRECT tutorial
+    # could sit third for an "indirect prompt injection" query.
+    merged = merge_search_results(groups, query, limit=limit)
+    final = diversify_results(
         dedupe_results(merged, limit=max(limit * 3, limit)), limit=limit
     )
+    annotate_results(final, query)
+    before_filter = len(final)
+    # When enough real answers exist, do not pad the list with results that
+    # matched one word or the wrong language.  With only one or two relevant
+    # hits the unrelated rows stay at the bottom and a warning names them.
+    relevant = [item for item in final if item.get("relevance")]
+    if len(relevant) >= min(3, limit):
+        final = relevant
+    if quality is not None:
+        quality["returned_before_filter"] = before_filter
+        quality["dropped_off_topic"] = max(0, before_filter - len(final))
+    return final
+
+
+def _engine_failure_status(exc: BaseException) -> str:
+    """Classify one engine failure for the machine-readable report.
+
+    A caller in a hostile network needs to tell an empty result from a block,
+    a timeout and a parser change.  The old ``ok: false`` plus free text hid
+    that distinction, which made a blocked engine look like a thin topic.
+    """
+
+    text = f"{type(exc).__name__}: {exc}".lower()
+    if any(word in text for word in ("timeout", "timed out", "time out")):
+        return "timeout"
+    if "robots" in text:
+        return "robots_denied"
+    if any(
+        word in text
+        for word in ("verification", "antispider", "captcha", "blocked", "forbidden")
+    ):
+        return "blocked"
+    if any(word in text for word in ("parse", "decode", "json", "xml", "unexpected")):
+        return "parse_error"
+    return "error"
 
 
 def _thin_results(groups: list[tuple[str, list[dict[str, str]]]], limit: int) -> bool:
@@ -1627,6 +1757,13 @@ def _search_one(
 ) -> list[dict[str, str]]:
     quoted = urllib.parse.quote_plus(query)
     pages = max(1, pages)
+    # Search endpoints are query interfaces, not target pages. They still get
+    # a policy: respect (default) refuses a disallowed endpoint, warn reads it
+    # and marks the override, ignore skips the check. MCP force-sets respect.
+    query_fetch = {
+        "check_robots": config.query_robots != "ignore",
+        "robots_policy": config.query_robots,
+    }
     collected: list[dict[str, str]] = []
 
     for page in range(1, pages + 1):
@@ -1634,14 +1771,14 @@ def _search_one(
             break
         if name == "360":
             response = fetcher.fetch(
-                _SO_360.format(query=quoted, page=page), check_robots=False
+                _SO_360.format(query=quoted, page=page), **query_fetch
             )
             if is_360_blocked(response.text):
                 raise FetchError("360 returned a verification page; wait and retry later")
             found = parse_360_html(response.text, limit=limit)
         elif name == "sogou":
             response = fetcher.fetch(
-                _SOGOU.format(query=quoted, page=page), check_robots=False
+                _SOGOU.format(query=quoted, page=page), **query_fetch
             )
             if is_sogou_blocked(response.text):
                 raise FetchError("Sogou returned a verification page (antispider)")
@@ -1651,7 +1788,7 @@ def _search_one(
             found = resolve_sogou_results(parsed, fetcher, limit=limit)
         elif name == "weixin":
             response = fetcher.fetch(
-                _WEIXIN.format(query=quoted, page=page), check_robots=False
+                _WEIXIN.format(query=quoted, page=page), **query_fetch
             )
             if is_sogou_blocked(response.text):
                 raise FetchError("weixin.sogou.com returned a verification page (antispider)")
@@ -1660,7 +1797,7 @@ def _search_one(
             )
             found = resolve_sogou_results(parsed, fetcher, limit=limit)
         elif name == "duckduckgo":
-            response = fetcher.fetch(_DDG_HTML.format(query=quoted), check_robots=False)
+            response = fetcher.fetch(_DDG_HTML.format(query=quoted), **query_fetch)
             found = parse_ddg_html(response.text, limit=limit)
         else:
             first = 1 + (page - 1) * 10
@@ -1668,7 +1805,7 @@ def _search_one(
             try:
                 response = fetcher.fetch(
                     _BING_RSS.format(query=quoted, count=limit, first=first),
-                    check_robots=False,
+                    **query_fetch,
                 )
                 found = parse_bing_rss(response.text, limit=limit)
             except FetchError:
@@ -1676,7 +1813,7 @@ def _search_one(
             if not found:
                 response = fetcher.fetch(
                     _BING_HTML.format(query=quoted, count=limit, first=first),
-                    check_robots=False,
+                    **query_fetch,
                 )
                 found = parse_bing_html(response.text, limit=limit)
 
@@ -1705,46 +1842,495 @@ def result_coverage(result: dict[str, str], tokens: list[str]) -> float:
     return sum(1 for token in tokens if token in haystack) / len(tokens)
 
 
-_HIGH_VALUE_SUFFIXES = (
-    "docs.python.org",
-    "developer.mozilla.org",
-    "wikipedia.org",
-    "arxiv.org",
-    "github.com",
-    "stackoverflow.com",
-    "nature.com",
-    "science.org",
-    "who.int",
-    "worldbank.org",
-    "gov.cn",
-    "edu.cn",
-    "ac.uk",
-    "edu",
-)
-_LOW_VALUE_SUFFIXES = (
-    "doc88.com",
-    "docin.com",
-    "wenku.baidu.com",
-    "360doc.com",
-    "book118.com",
-)
+def _content_tokens(query: str) -> list[str]:
+    """Query terms that carry meaning; stopwords and one-letter words are noise.
 
-
-def _host_prior(host: str) -> float:
-    """A small prior for domains that usually answer a query well.
-
-    It only breaks ties and nudges; query coverage carries most of the score,
-    so a content farm with the exact answer still outranks an off-topic paper.
+    Chinese is not whitespace-separated.  A long CJK run is expanded into
+    character bigrams for matching; a mixed token carrying digits (``2026年11月``)
+    stays whole because the date is itself the searchable unit.  This is not a
+    word segmenter, but it stops a whole sentence from becoming one token that
+    no result can ever match.
     """
 
-    host = (host or "").lower()
-    for suffix in _HIGH_VALUE_SUFFIXES:
-        if host == suffix or host.endswith("." + suffix):
-            return 0.08
-    for suffix in _LOW_VALUE_SUFFIXES:
-        if host == suffix or host.endswith("." + suffix):
-            return -0.08
-    return 0.0
+    tokens = _query_tokens(query)
+    content: list[str] = []
+    for token in tokens:
+        if token in _QUERY_STOPWORDS or len(token) < 2:
+            continue
+        if re.search(r"\d", token):
+            content.append(token)
+            continue
+        if not _CJK_RE.search(token):
+            content.append(token)
+            continue
+        for run in re.findall(
+            r"[㐀-䶿一-鿿豈-﫿぀-ヿ가-힯]+"
+            r"|[A-Za-z0-9]+",
+            token,
+        ):
+            if _CJK_RE.search(run):
+                if len(run) <= 3:
+                    content.append(run)
+                else:
+                    content.extend(run[index : index + 2] for index in range(len(run) - 1))
+            elif len(run) >= 2:
+                content.append(run.lower())
+    return list(dict.fromkeys(content)) or tokens
+
+
+_LATIN_WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9+#.-]*")
+
+
+def _stem_token(token: str) -> str:
+    """A deliberately small English stemmer for matching, not display.
+
+    ``injections`` and ``injection`` should meet; a full Porter stemmer would
+    also merge unrelated words and make the relevance check harder to explain.
+    Tokens containing CJK or punctuation are returned unchanged.
+    """
+
+    value = token.lower()
+    if not re.fullmatch(r"[a-z][a-z0-9+-]*", value) or len(value) <= 4:
+        return value
+    if value.endswith("ies"):
+        return value[:-3] + "y"
+    if value.endswith("ing") and len(value) > 5:
+        return value[:-3]
+    if value.endswith("ed") and len(value) > 4:
+        return value[:-2]
+    if value.endswith("sses"):
+        return value[:-2]
+    if value.endswith(("ches", "shes", "xes", "zes", "oes")):
+        return value[:-2]
+    if value.endswith("s") and not value.endswith("ss"):
+        return value[:-1]
+    return value
+
+
+def _stems(text: str) -> set[str]:
+    return {_stem_token(word) for word in _LATIN_WORD_RE.findall(text.lower())}
+
+
+def _token_in_text(token: str, text: str, stems: set[str]) -> bool:
+    token = (token or "").lower()
+    if token and token in text:
+        return True
+    return bool(re.fullmatch(r"[a-z][a-z0-9+-]*", token)) and _stem_token(token) in stems
+
+
+def _script_stats(text: str) -> tuple[int, int]:
+    """Return ``(CJK characters, Latin words)`` for a language sanity check."""
+
+    value = str(text or "")
+    return (
+        len(_CJK_RE.findall(value)),
+        len(re.findall(r"[A-Za-z]{2,}", value)),
+    )
+
+
+_INTENT_PATTERNS: dict[str, re.Pattern[str]] = {
+    "news": re.compile(
+        r"新闻|资讯|最新|今日|今天|本周|本月|今年|刚刚|发布会|财报|营收|股价|"
+        r"202[4-9]年|\bnews\b|\bupdate\b",
+        re.I,
+    ),
+    "comparison": re.compile(
+        r"对比|比较|区别|差异|怎么选|如何选|哪个好|哪个更|优缺点|取舍|"
+        r"\bvs\.?\b|\bversus\b|\bcomparison\b|\bcompare\b|\bbetter\b|\bchoose\b",
+        re.I,
+    ),
+    "technical": re.compile(
+        r"python|javascript|typescript|java|golang|rust|asyncio|api|sdk|cli|"
+        r"http|json|sql|docker|kubernetes|git|linux|regex|报错|异常|安装|配置|"
+        r"函数|接口|依赖|编译|代码|文档|版本|任务组|协程",
+        re.I,
+    ),
+    "policy": re.compile(
+        r"法规|法律|政策|合规|监管|标准|条例|法案|司法|欧盟|ai act|gdpr|"
+        r"regulation|compliance|\blaw\b|\bact\b",
+        re.I,
+    ),
+    "howto": re.compile(
+        r"怎么办|咋办|怎么解决|如何解决|修复|连不上|打不开|用不了|设置|教程|"
+        r"步骤|方法|技巧|how to|fix|troubleshoot|setup|repair",
+        re.I,
+    ),
+    "research": re.compile(
+        r"arxiv|论文|文献|综述|survey|paper|study|research|academic|acl|ieee|acm",
+        re.I,
+    ),
+    "factual": re.compile(
+        r"是谁|多少|哪年|何时|什么时候|定义|作者|创始人|营收|人口|面积|"
+        r"what is|who is|when|how many|definition",
+        re.I,
+    ),
+}
+_INTENT_ORDER = (
+    "news",
+    "policy",
+    "comparison",
+    "technical",
+    "howto",
+    "research",
+    "factual",
+    "general",
+)
+_INTENT_STRONG_SIGNALS = {
+    "comparison": ("怎么选", "如何选", "哪个好", "对比", "vs"),
+    "howto": ("怎么办", "咋办", "连不上", "打不开", "怎么解决"),
+    "factual": ("是谁", "的作者", "多少", "定义"),
+    "policy": ("法规", "合规", "监管", "ai act"),
+    "news": ("新闻", "最新", "今天", "本月"),
+    "technical": ("报错", "异常", "api", "sdk", "asyncio"),
+}
+
+
+def classify_intent(query: str) -> dict[str, Any]:
+    """Classify what kind of source will actually answer ``query``.
+
+    Free and deterministic: a small keyword vote, with a few strong phrases
+    counted twice.  It is deliberately conservative — ``general`` is a valid
+    answer, and authority weighting keeps working without it.
+    """
+
+    text = (query or "").lower()
+    scores: dict[str, int] = {}
+    signals: dict[str, list[str]] = {}
+    for name, pattern in _INTENT_PATTERNS.items():
+        matches = pattern.findall(text)
+        if matches:
+            scores[name] = len(matches)
+            signals[name] = list(dict.fromkeys(item.lower() for item in matches))[:5]
+    for name, phrases in _INTENT_STRONG_SIGNALS.items():
+        for phrase in phrases:
+            if phrase in text:
+                scores[name] = scores.get(name, 0) + 1
+                signals.setdefault(name, []).append(phrase)
+    if not scores:
+        return {"intent": "general", "confidence": 0.3, "signals": []}
+    best = max(
+        scores,
+        key=lambda name: (scores[name], -_INTENT_ORDER.index(name)),
+    )
+    confidence = min(0.95, round(0.45 + 0.1 * scores[best], 2))
+    return {
+        "intent": best,
+        "confidence": confidence,
+        "signals": list(dict.fromkeys(signals.get(best, [])))[:5],
+    }
+
+
+_AUTHORITY_TIERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "primary",
+        (
+            "docs.python.org",
+            "developer.mozilla.org",
+            "go.dev",
+            "rust-lang.org",
+            "nodejs.org",
+            "developer.apple.com",
+            "learn.microsoft.com",
+            "support.microsoft.com",
+            "kubernetes.io",
+            "docs.docker.com",
+            "postgresql.org",
+            "nginx.org",
+            "apache.org",
+            "w3.org",
+            "ietf.org",
+            "unicode.org",
+            "docs.github.com",
+        ),
+    ),
+    (
+        "official",
+        (
+            "gov.cn",
+            "gov",
+            "europa.eu",
+            "sec.gov",
+            "nist.gov",
+            "who.int",
+            "worldbank.org",
+            "un.org",
+            "nvidia.com",
+            "openai.com",
+            "anthropic.com",
+        ),
+    ),
+    (
+        "academic",
+        (
+            "arxiv.org",
+            "aclanthology.org",
+            "openreview.net",
+            "semanticscholar.org",
+            "pubmed.ncbi.nlm.nih.gov",
+            "nature.com",
+            "science.org",
+            "springer.com",
+            "sciencedirect.com",
+            "ieee.org",
+            "acm.org",
+            "plos.org",
+            "biorxiv.org",
+        ),
+    ),
+    (
+        "media",
+        (
+            "reuters.com",
+            "bloomberg.com",
+            "ft.com",
+            "wsj.com",
+            "nytimes.com",
+            "bbc.com",
+            "bbc.co.uk",
+            "caixin.com",
+            "yicai.com",
+            "cls.cn",
+            "nbd.com.cn",
+            "stcn.com",
+            "thepaper.cn",
+            "jiemian.com",
+            "chinanews.com.cn",
+            "finance.sina.com.cn",
+        ),
+    ),
+    (
+        "reference",
+        (
+            "wikipedia.org",
+            "britannica.com",
+            "imdb.com",
+            "themoviedb.org",
+        ),
+    ),
+    (
+        "community",
+        (
+            "stackoverflow.com",
+            "stackexchange.com",
+            "github.com",
+            "reddit.com",
+            "news.ycombinator.com",
+            "zhihu.com",
+            "cnblogs.com",
+            "medium.com",
+            "dev.to",
+            "quora.com",
+        ),
+    ),
+    (
+        "low",
+        (
+            "csdn.net",
+            "php.cn",
+            "doc88.com",
+            "docin.com",
+            "wenku.baidu.com",
+            "360doc.com",
+            "book118.com",
+            "jianshu.com",
+            "toutiao.com",
+        ),
+    ),
+)
+_AUTHORITY_BASE = {
+    "primary": 0.18,
+    "official": 0.18,
+    "academic": 0.16,
+    "media": 0.10,
+    "reference": 0.06,
+    "community": 0.05,
+    "low": -0.16,
+    "unknown": 0.0,
+}
+_AUTHORITY_MULTIPLIER = {
+    "technical": {
+        "primary": 1.3,
+        "official": 0.8,
+        "academic": 0.9,
+        "media": 0.4,
+        "reference": 0.6,
+        "community": 0.9,
+        "low": 1.2,
+        "unknown": 1.0,
+    },
+    "news": {
+        "primary": 0.4,
+        "official": 0.9,
+        "academic": 0.4,
+        "media": 1.4,
+        "reference": 0.4,
+        "community": 0.3,
+        "low": 1.0,
+        "unknown": 1.0,
+    },
+    "comparison": {
+        "primary": 0.8,
+        "official": 0.6,
+        "academic": 0.8,
+        "media": 0.5,
+        "reference": 0.6,
+        "community": 1.0,
+        "low": 1.2,
+        "unknown": 1.0,
+    },
+    "policy": {
+        "primary": 0.6,
+        "official": 1.3,
+        "academic": 1.0,
+        "media": 0.8,
+        "reference": 0.7,
+        "community": 0.4,
+        "low": 1.2,
+        "unknown": 1.0,
+    },
+    "howto": {
+        "primary": 1.3,
+        "official": 1.0,
+        "academic": 0.5,
+        "media": 0.4,
+        "reference": 0.6,
+        "community": 1.0,
+        "low": 0.8,
+        "unknown": 1.0,
+    },
+    "factual": {
+        "primary": 1.0,
+        "official": 1.2,
+        "academic": 1.1,
+        "media": 0.9,
+        "reference": 1.1,
+        "community": 0.6,
+        "low": 1.0,
+        "unknown": 1.0,
+    },
+    "research": {
+        "primary": 0.9,
+        "official": 0.7,
+        "academic": 1.4,
+        "media": 0.4,
+        "reference": 0.6,
+        "community": 0.6,
+        "low": 1.2,
+        "unknown": 1.0,
+    },
+    "general": {tier: 1.0 for tier in _AUTHORITY_BASE},
+}
+
+
+def authority_for(host: str, intent: str = "general") -> dict[str, Any]:
+    """Return an explicit source-authority tier and a small ranking bonus."""
+
+    host = (host or "").lower().lstrip(".")
+    tier = "unknown"
+    for name, suffixes in _AUTHORITY_TIERS:
+        if any(host == suffix or host.endswith("." + suffix) for suffix in suffixes):
+            tier = name
+            break
+    multiplier = _AUTHORITY_MULTIPLIER.get(
+        intent, _AUTHORITY_MULTIPLIER["general"]
+    ).get(tier, 1.0)
+    score = _AUTHORITY_BASE[tier] * multiplier
+    return {
+        "tier": tier,
+        "score": round(score, 3),
+        "intent": intent,
+    }
+
+
+def result_match(
+    result: dict[str, str], query: str, tokens: Optional[list[str]] = None
+) -> dict[str, Any]:
+    """Grade how well one search result answers ``query``.
+
+    A title is not a match just because the URL contains one query word.  The
+    result must either contain the full phrase or at least two meaningful query
+    terms with half the query covered.  A Chinese page that merely repeats one
+    English product name does not pass an English four-word query; it is marked
+    with ``language_match: false`` and ranked below real answers.
+    """
+
+    tokens = tokens if tokens is not None else _content_tokens(query)
+    haystack = " ".join(
+        (result.get("title", ""), result.get("snippet", ""))
+    ).lower()
+    title = (result.get("title") or "").lower()
+    stems = _stems(haystack)
+    title_stems = _stems(title)
+    matched = [token for token in tokens if _token_in_text(token, haystack, stems)]
+    coverage = len(matched) / len(tokens) if tokens else 0.0
+    title_hits = (
+        sum(1 for token in tokens if _token_in_text(token, title, title_stems)) / len(tokens)
+        if tokens
+        else 0.0
+    )
+    phrase = " ".join((query or "").lower().split())
+    exact = bool(phrase and phrase in haystack)
+    title_exact = bool(phrase and title.strip() == phrase)
+    cjk_query = any(_CJK_RE.search(token) for token in tokens)
+    # A CJK query has no word boundaries, so its tokens are character bigrams
+    # and full coverage is the wrong bar: an eight-character question has seven
+    # bigrams, and a correct title often carries only a few of them.  Requiring
+    # several *overlapping* pieces is the useful signal there; Latin queries
+    # keep the stricter coverage rule.
+    required = 1 if len(tokens) <= 1 else (3 if cjk_query and len(tokens) >= 8 else 2)
+    if cjk_query:
+        relevant = exact or len(matched) >= required
+    else:
+        relevant = exact or (len(matched) >= required and coverage >= 0.5)
+
+    query_cjk, query_latin = _script_stats(query)
+    result_cjk, result_latin = _script_stats(haystack)
+    language_match = True
+    # Latin query, overwhelmingly Chinese result that does not carry the query
+    # terms.  This is the Excel INDIRECT failure mode: one English product name
+    # in a Chinese tutorial is not an answer to an English concept query.
+    if query_latin >= 2 and query_cjk == 0:
+        if (
+            result_cjk >= 8
+            and result_latin < max(2, len(tokens))
+            and coverage < 0.5
+        ):
+            language_match = False
+    # A Chinese query answered by an unrelated English page.
+    elif query_cjk >= 2 and query_latin == 0:
+        if result_latin >= 8 and result_cjk < 4 and coverage < 0.5:
+            language_match = False
+
+    return {
+        "coverage": round(coverage, 3),
+        "title_coverage": round(title_hits, 3),
+        "matched_terms": matched,
+        "exact": exact,
+        "title_exact": title_exact,
+        "relevant": relevant,
+        "language_match": language_match,
+    }
+
+
+def annotate_results(results: list[dict[str, Any]], query: str) -> list[dict[str, Any]]:
+    """Attach relevance and authority fields in place and return the same list."""
+
+    tokens = _content_tokens(query)
+    intent = classify_intent(query)
+    for item in results:
+        details = result_match(item, query, tokens)
+        host = urllib.parse.urlsplit(item.get("url", "")).netloc
+        authority = authority_for(host, intent["intent"])
+        item.update(
+            coverage=details["coverage"],
+            matched_terms=details["matched_terms"],
+            relevance=details["relevant"],
+            language_match=details["language_match"],
+            authority_tier=authority["tier"],
+            authority_score=authority["score"],
+            intent=intent["intent"],
+        )
+    return results
 
 
 def _freshness_bonus(text: str) -> float:
@@ -1835,42 +2421,141 @@ def diversify_results(
     return (chosen + overflow)[:limit]
 
 
+_SEARCH_ENGINE_HOSTS = {
+    "sogou.com",
+    "www.sogou.com",
+    "m.sogou.com",
+    "weixin.sogou.com",
+    "m.weixin.sogou.com",
+    "so.com",
+    "www.so.com",
+    "m.so.com",
+    "bing.com",
+    "www.bing.com",
+    "cn.bing.com",
+    "baidu.com",
+    "www.baidu.com",
+    "m.baidu.com",
+    "google.com",
+    "www.google.com",
+    "duckduckgo.com",
+    "html.duckduckgo.com",
+    "yandex.com",
+    "yandex.ru",
+}
+
+
+def _is_search_engine_page(url: str) -> bool:
+    """True for a search engine's own result page, which is not an answer.
+
+    One backend occasionally echoes a Sogou/360 results URL into its own list.
+    Ranking it first would cite the search box instead of the source, so these
+    intermediate pages are dropped before scoring.  Article hosts that merely
+    live under a portal (``baijiahao.baidu.com``) are not in this set.
+    """
+
+    try:
+        parts = urllib.parse.urlsplit(str(url or "").strip())
+    except ValueError:
+        return False
+    host = (parts.hostname or "").lower().rstrip(".")
+    if host not in _SEARCH_ENGINE_HOSTS:
+        return False
+    path = (parts.path or "").lower()
+    query = (parts.query or "").lower()
+    if any(
+        marker in query
+        for marker in ("query=", "q=", "wd=", "keyword=", "word=")
+    ):
+        return True
+    return path.startswith(("/sogou", "/search", "/web", "/s", "/antispider"))
+
+
 def merge_search_results(
-    groups: list[tuple[str, list[dict[str, str]]]],
+    groups: list[tuple[str, list[dict[str, Any]]]],
     query: str,
     limit: int = 8,
-) -> list[dict[str, str]]:
-    """Merge several engines by coverage, title match, domain prior and freshness.
+) -> list[dict[str, Any]]:
+    """Merge several engines by coverage, title match, authority and freshness.
 
     Engine order only breaks exact ties, so two engines that return the same
     page still produce one stable ordering.
     """
 
-    tokens = _query_tokens(query)
-    phrase = " ".join((query or "").lower().split())
-    scored: list[tuple[float, int, int, dict[str, str]]] = []
+    tokens = _content_tokens(query)
+    intent = classify_intent(query)
+    rrf_by_url: dict[str, float] = {}
+    for _, items in groups:
+        for rank, item in enumerate(items):
+            key = _canonical_url(item.get("url", ""))
+            if key:
+                rrf_by_url[key] = rrf_by_url.get(key, 0.0) + 1.0 / (60 + rank + 1)
+
+    scored: list[tuple[float, int, int, dict[str, Any]]] = []
     for group_index, (name, items) in enumerate(groups):
         for rank, item in enumerate(items):
-            candidate = dict(item)
+            if _is_search_engine_page(item.get("url", "")):
+                continue
+            candidate: dict[str, Any] = dict(item)
             candidate.setdefault("source", name)
-            coverage = result_coverage(candidate, tokens)
-            title = (candidate.get("title") or "").lower()
-            title_hits = (
-                sum(1 for token in tokens if token in title) / len(tokens)
-                if tokens
-                else 0.0
-            )
-            exact = 0.1 if phrase and phrase in title else 0.0
+            details = result_match(candidate, query, tokens)
+            key = _canonical_url(candidate.get("url", ""))
+            rrf = rrf_by_url.get(key, 0.0)
             host = urllib.parse.urlsplit(candidate.get("url", "")).netloc
-            score = (
-                coverage * 0.55
-                + title_hits * 0.2
-                + exact
-                + _host_prior(host)
-                + _freshness_bonus(
-                    f"{candidate.get('title', '')} {candidate.get('snippet', '')}"
-                )
+            authority = authority_for(host, intent["intent"])
+            freshness = _freshness_bonus(
+                f"{candidate.get('title', '')} {candidate.get('snippet', '')}"
             )
+            components = {
+                "coverage": round(details["coverage"], 3),
+                "title": round(details["title_coverage"], 3),
+                "exact": bool(details["exact"]),
+                "title_exact": bool(details["title_exact"]),
+                "relevant": bool(details["relevant"]),
+                "rrf": round(rrf, 4),
+                "authority": round(float(authority["score"]), 3),
+                "freshness": round(freshness, 3),
+                "language_penalty": 0.0 if details["language_match"] else -0.35,
+            }
+            candidate.update(
+                coverage=details["coverage"],
+                matched_terms=details["matched_terms"],
+                relevance=details["relevant"],
+                language_match=details["language_match"],
+                rrf=round(rrf, 4),
+                authority_tier=authority["tier"],
+                authority_score=authority["score"],
+                intent=intent["intent"],
+                rank_components=components,
+                rank_reason=[
+                    name
+                    for name in (
+                        "coverage",
+                        "title",
+                        "rrf",
+                        "exact",
+                        "title_exact",
+                        "relevant",
+                        "authority",
+                        "freshness",
+                        "language_penalty",
+                    )
+                    if components[name]
+                ],
+            )
+            score = (
+                components["coverage"] * 0.5
+                + components["title"] * 0.15
+                + (0.15 if components["exact"] else 0.0)
+                + (0.05 if components["title_exact"] else 0.0)
+                + (0.2 if components["relevant"] else 0.0)
+                + min(0.12, components["rrf"] * 3.0)
+                + components["authority"]
+                + components["freshness"]
+                + components["language_penalty"]
+            )
+            if not components["relevant"]:
+                score -= 0.15
             scored.append((score, group_index, rank, candidate))
     scored.sort(key=lambda entry: (-entry[0], entry[1], entry[2]))
     return [entry[3] for entry in scored[: max(limit * 3, limit)]]
@@ -2050,6 +2735,63 @@ def resolve_sogou_results(
     return resolved
 
 
+_TRACKING_QUERY = re.compile(
+    r"^(?:utm_|gclid$|fbclid$|yclid$|spm$|ref$|source$|share_token$|"
+    r"from$|mc_cid$|mc_eid$|igshid$)",
+    re.I,
+)
+
+
+def _canonical_url(url: str) -> str:
+    """A dedupe key for one URL, without tracking noise.
+
+    Search engines return the same article as ``/a``, ``/a/``, ``/a#top`` and
+    ``/a?utm_source=...``.  Keeping the display URL untouched is important;
+    this key only decides whether two rows are the same result.
+    """
+
+    raw = str(url or "").strip()
+    if not raw:
+        return ""
+    try:
+        parts = urllib.parse.urlsplit(raw)
+        port = parts.port
+    except ValueError:
+        return raw
+    if not parts.netloc:
+        return raw
+    host = (parts.hostname or "").lower().rstrip(".")
+    if not host:
+        return raw
+    if host.startswith("www."):
+        host = host[4:]
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    if port and not (
+        (parts.scheme.lower() == "http" and port == 80)
+        or (parts.scheme.lower() == "https" and port == 443)
+    ):
+        host = f"{host}:{port}"
+    path = re.sub(r"/+", "/", parts.path or "/")
+    if len(path) > 1:
+        path = path.rstrip("/")
+    if path.endswith("/amp"):
+        path = path[:-4] or "/"
+    query = urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+    query = sorted(
+        (key, value) for key, value in query if not _TRACKING_QUERY.match(key)
+    )
+    return urllib.parse.urlunsplit(
+        (
+            (parts.scheme or "https").lower(),
+            host,
+            path,
+            urllib.parse.urlencode(query, doseq=True),
+            "",
+        )
+    )
+
+
 def dedupe_results(results: Iterable[dict[str, str]], limit: int = 8) -> list[dict[str, str]]:
     """Remove duplicate URLs and unusable titles while preserving rank order."""
 
@@ -2057,7 +2799,8 @@ def dedupe_results(results: Iterable[dict[str, str]], limit: int = 8) -> list[di
     unique: list[dict[str, str]] = []
     for item in results:
         url = item.get("url", "")
-        if not url or url in seen:
+        key = _canonical_url(url)
+        if not url or key in seen:
             continue
         title = str(item.get("title") or "")
         # Engines sometimes answer a query with an anti-bot interstitial and
@@ -2066,7 +2809,7 @@ def dedupe_results(results: Iterable[dict[str, str]], limit: int = 8) -> list[di
         # dedupe_results bare URLs.
         if title and (looks_garbled(title) or not _USEFUL_TITLE_RE.search(title)):
             continue
-        seen.add(url)
+        seen.add(key)
         unique.append(item)
         if len(unique) >= limit:
             break
@@ -2955,6 +3698,32 @@ def render_html(url: str, config: FetchConfig) -> str:
             browser = playwright.chromium.launch(headless=True)
             try:
                 context = browser.new_context(user_agent=config.user_agent)
+
+                def guard_request(route: Any) -> None:
+                    """Block private/file subresources, not just the document.
+
+                    ``page.goto`` checks the requested and final document URL,
+                    but a hostile page can still ask Chromium to load an image,
+                    script or fetch() from 127.0.0.1, the LAN or a metadata
+                    endpoint. The browser-mode bridge already installs this
+                    filter; the Python render path needs the same boundary.
+                    """
+
+                    request_url = route.request.url
+                    if request_url.startswith(("file:", "filesystem:")):
+                        route.abort()
+                        return
+                    if request_url.startswith(("http://", "https://")):
+                        try:
+                            assert_public_url(
+                                request_url, allow_private=config.allow_private
+                            )
+                        except UnsafeAddress:
+                            route.abort()
+                            return
+                    route.continue_()
+
+                context.route("**/*", guard_request)
                 page = context.new_page()
                 page.set_default_timeout(timeout_ms)
                 page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
@@ -3096,13 +3865,15 @@ def load_session(name: str) -> dict[str, Any]:
 
 def save_session(name: str, data: dict[str, Any]) -> Path:
     path = session_path(name)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    _private_path(path.parent, 0o700)
     payload = {
         "visited": list(data.get("visited", []))[-1000:],
         "trail": list(data.get("trail", []))[-500:],
         "updated_at": utc_now(),
     }
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _private_path(path, 0o600)
     return path
 
 
@@ -3295,6 +4066,7 @@ def fetch_page(
     warnings: list[str] = []
 
     try:
+        response: Optional[HttpResponse] = None
         policy = fetcher.assert_allowed(url)
         robots_checked = bool(config.respect_robots and config.robots_policy != "ignore")
         robots_overridden = bool(robots_checked and not policy.allowed(url))
@@ -3305,7 +4077,6 @@ def fetch_page(
             )
         extra_delay = policy.crawl_delay if policy and policy.crawl_delay else 0.0
 
-        response: Optional[HttpResponse] = None
         rendered = False
         render_fallback = False
         html = ""
@@ -3316,6 +4087,12 @@ def fetch_page(
             rendered = True
         else:
             response = fetcher.fetch(url)
+            if getattr(response, "robots_overridden", False) and not robots_overridden:
+                robots_overridden = True
+                warnings.append(
+                    "a redirect target was read because robots policy is 'warn'; "
+                    "this override is recorded as compliance.robots_overridden."
+                )
             html = response.text
             if config.render == "auto" and looks_dynamic(html):
                 try:
@@ -3323,7 +4100,7 @@ def fetch_page(
                     if rendered_html and len(rendered_html) > len(html):
                         html = rendered_html
                         rendered = True
-                        log(f"rendered dynamically: {url}", config)
+                        log(f"rendered dynamically: {redact_url_for_log(url)}", config)
                 except RenderUnavailable as exc:
                     warnings.append(f"dynamic rendering skipped: {exc}")
                 except Exception as exc:  # pragma: no cover - defensive
@@ -3461,26 +4238,30 @@ def fetch_page(
                 "the page may be empty, paywalled, or require JavaScript rendering"
             )
 
+        # Everything below came from a third party. Say so in the record, and
+        # name instruction-shaped passages instead of letting them read as
+        # part of the surrounding conversation.  Scan before max_chars
+        # truncation: a hostile instruction near the tail of a long page must
+        # not disappear just because the caller asked for a shorter body.
+        injection_flags: list[str] = []
+        injection_findings: list[dict[str, Any]] = []
+        trust = "untrusted"
+        if config.input_gate != "off":
+            injection_findings = untrusted.scan_findings(
+                markdown + "\n" + str(metadata.get("title", ""))
+            )
+            injection_flags = untrusted.codes(injection_findings)
+            hard = untrusted.hard_codes(injection_findings)
+            if hard and config.input_gate == "strict":
+                markdown = ""
+                trust = "rejected"
+                warnings.insert(0, untrusted.withheld(hard, injection_findings))
+            elif injection_findings:
+                warnings.insert(0, untrusted.warning(injection_flags, injection_findings))
+
         if config.max_chars and len(markdown) > config.max_chars:
             markdown = markdown[: config.max_chars].rstrip() + "\n\n<!-- truncated by web-forager -->"
             warnings.append(f"markdown truncated to {config.max_chars} characters")
-
-        # Everything below came from a third party. Say so in the record, and
-        # name instruction-shaped passages instead of letting them read as
-        # part of the surrounding conversation.
-        injection_flags: list[str] = []
-        trust = "untrusted"
-        if config.input_gate != "off":
-            injection_flags = untrusted.scan(
-                markdown + "\n" + str(metadata.get("title", ""))
-            )
-            if injection_flags:
-                if config.input_gate == "strict":
-                    markdown = ""
-                    trust = "rejected"
-                    warnings.insert(0, untrusted.withheld(injection_flags))
-                else:
-                    warnings.insert(0, untrusted.warning(injection_flags))
 
         links = []
         if config.extract_links and not is_pdf_payload and not document_kind and not feed_format:
@@ -3514,6 +4295,7 @@ def fetch_page(
             "warnings": warnings,
             "trust": trust,
             "injection_flags": injection_flags,
+            "injection_findings": injection_findings,
             "compliance": {
                 "robots_checked": robots_checked,
                 "robots_policy": (
@@ -3538,26 +4320,52 @@ def search_warnings(
     """
 
     warnings: list[str] = []
-    tokens = _query_tokens(query)
+    tokens = _content_tokens(query)
+    if results:
+        annotate_results(results, query)
     if not results:
         warnings.append(
             f"no results: {engine} returned nothing for {query!r}. Try another "
             "engine (--engine all), a shorter query, or a direct URL."
         )
-    elif tokens and max(result_coverage(item, tokens) for item in results) <= 0:
-        warnings.append(
-            "none of the returned results mention the query text; the engine "
-            "most likely split the query into single characters (common with "
-            "quoted or CJK names). Treat these results as unrelated and try "
-            "another engine or a more specific query."
-        )
+    elif tokens and not any(item.get("relevance") for item in results):
+        if max(result_coverage(item, tokens) for item in results) <= 0:
+            warnings.append(
+                "none of the returned results mention the query text; the engine "
+                "most likely split the query into single characters (common with "
+                "quoted or CJK names). Treat these results as unrelated and try "
+                "another engine or a more specific query."
+            )
+        else:
+            warnings.append(
+                "none of the returned results pass the relevance check: each needs "
+                "at least two meaningful query terms, the exact phrase, or an "
+                "equivalent match. Treat these results as unrelated and try another "
+                "engine or a shorter, more specific query."
+            )
+    else:
+        off_topic = [item for item in results if item.get("relevance") is False]
+        if off_topic:
+            warnings.append(
+                f"{len(off_topic)} of {len(results)} results look off-topic: they "
+                "match only one query term or come from the wrong language. They "
+                "are kept at the bottom of the list; check relevance before using "
+                "them as findings."
+            )
     if results:
-        probe = " ".join(
-            f"{item.get('title', '')} {item.get('snippet', '')}" for item in results[:8]
-        )
-        flags = untrusted.scan(probe)
-        if flags:
-            warnings.append(untrusted.warning(flags))
+        probe_findings: list[dict[str, Any]] = []
+        for item in results:
+            findings = untrusted.scan_findings(
+                f"{item.get('title', '')} {item.get('snippet', '')}"
+            )
+            if findings:
+                item["injection_flags"] = untrusted.codes(findings)
+                item["injection_findings"] = findings
+                probe_findings.extend(findings)
+        if probe_findings:
+            warnings.append(
+                untrusted.warning(untrusted.codes(probe_findings), probe_findings)
+            )
     if looks_like_person_name(query):
         warnings.append(
             "the query is a bare personal name. Searching a paper author or a "
@@ -3567,12 +4375,86 @@ def search_warnings(
     return warnings
 
 
+def search_quality(
+    query: str,
+    results: list[dict[str, Any]],
+    engine: str = "auto",
+    engine_report: Optional[list[dict[str, Any]]] = None,
+) -> dict[str, Any]:
+    """A small, machine-readable summary of how good a result list is.
+
+    The prose warnings remain for humans; this block lets an agent decide
+    whether to trust the list without parsing English.  Counts describe what
+    was returned, not what the engine could have returned.
+    """
+
+    annotate_results(results, query)
+    intent = classify_intent(query)
+    relevant = sum(1 for item in results if item.get("relevance"))
+    off_topic = sum(1 for item in results if item.get("relevance") is False)
+    language_mismatch = sum(
+        1 for item in results if item.get("language_match") is False
+    )
+    tiers: dict[str, int] = {}
+    for item in results:
+        tier = str(item.get("authority_tier") or "unknown")
+        tiers[tier] = tiers.get(tier, 0) + 1
+    answered = [
+        str(entry.get("engine", ""))
+        for entry in (engine_report or [])
+        if entry.get("ok") and entry.get("engine")
+    ]
+    errors = [
+        {"engine": entry.get("engine", ""), "error": entry.get("error", "")}
+        for entry in (engine_report or [])
+        if not entry.get("ok")
+    ]
+    engine_status = {
+        str(entry.get("engine", "")): str(
+            entry.get("status") or ("ok" if entry.get("ok") else "error")
+        )
+        for entry in (engine_report or [])
+        if entry.get("engine")
+    }
+    engine_states: dict[str, int] = {}
+    for state in engine_status.values():
+        engine_states[state] = engine_states.get(state, 0) + 1
+    return {
+        "query": query,
+        "engine": engine,
+        "intent": intent["intent"],
+        "intent_confidence": intent["confidence"],
+        "returned": len(results),
+        "relevant": relevant,
+        "off_topic": off_topic,
+        "language_mismatch": language_mismatch,
+        "authority_tiers": tiers,
+        "high_authority": sum(
+            tiers.get(tier, 0)
+            for tier in ("primary", "official", "academic")
+        ),
+        "engines_answered": answered,
+        "engine_errors": errors,
+        "engine_status": engine_status,
+        "engine_states": engine_states,
+    }
+
+
 SITE_SEARCH_TEMPLATES = (
     "/?s={query}",
     "/search?q={query}",
     "/?search={query}",
     "/search?query={query}",
 )
+# Hosts whose own search page is not one of the generic WordPress/Sphinx
+# shapes above.  These are public search interfaces, not scraped result pages;
+# the links they return are still fetched through the normal robots-aware path.
+_SITE_SEARCH_URLS = {
+    "support.microsoft.com": (
+        "https://support.microsoft.com/en-us/search/results?query={query}"
+    ),
+    "developer.mozilla.org": "https://developer.mozilla.org/en-US/search?q={query}",
+}
 
 
 def find_within_site(
@@ -3613,11 +4495,19 @@ def find_within_site(
     attempts: list[dict[str, Any]] = []
     page: Optional[HttpResponse] = None
     search_url = ""
+    host = (urllib.parse.urlsplit(site_url).hostname or "").lower()
+    preferred = _SITE_SEARCH_URLS.get(host) or _SITE_SEARCH_URLS.get(
+        host.removeprefix("www.")
+    )
+    templates = ((preferred,) if preferred else ()) + SITE_SEARCH_TEMPLATES
     try:
-        for template in SITE_SEARCH_TEMPLATES:
-            candidate = site_url.rstrip("/") + template.format(
-                query=urllib.parse.quote_plus(query)
-            )
+        for template in templates:
+            if template.startswith(("http://", "https://")):
+                candidate = template.format(query=urllib.parse.quote_plus(query))
+            else:
+                candidate = site_url.rstrip("/") + template.format(
+                    query=urllib.parse.quote_plus(query)
+                )
             started = time.monotonic()
             try:
                 response = fetcher.fetch(candidate)
@@ -3830,12 +4720,14 @@ def fetch_by_query(
 
     try:
         engine_report: list[dict[str, Any]] = []
+        quality_data: dict[str, Any] = {}
         results = search(
             query,
             config,
             engine=engine,
             limit=config.num_results,
             report=engine_report,
+            quality=quality_data,
         )
         pages: list[dict[str, Any]] = []
         skipped: list[dict[str, str]] = []
@@ -3889,11 +4781,14 @@ def fetch_by_query(
                 skipped.append(
                     {"url": result["url"], "code": "unexpected", "reason": str(exc)}
                 )
+        quality = search_quality(query, results, engine, engine_report)
+        quality.update(quality_data)
         payload: dict[str, Any] = {
             "query": query,
             "engine": engine,
             "mode": "search",
             "search_results": results,
+            "search_quality": quality,
             "engine_report": engine_report,
             "pages": pages,
             "skipped": skipped,
@@ -4001,6 +4896,31 @@ def redact_url(value: str) -> str:
     port = f":{parts.port}" if parts.port else ""
     scheme = parts.scheme or "http"
     return f"{scheme}://{host}{port}" if host else ""
+
+
+def redact_url_for_log(value: str) -> str:
+    """A URL safe to put in a diagnostic line.
+
+    Query strings carry search terms, signed tokens and session identifiers,
+    and fragments can carry the same.  Verbose logging therefore keeps the
+    scheme, host and path only; the caller already has the full URL in the
+    result when it needs it.
+    """
+
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if "://" not in text:
+        text = "http://" + text
+    try:
+        parts = urllib.parse.urlsplit(text)
+    except ValueError:
+        return ""
+    if not parts.scheme or not parts.netloc:
+        return ""
+    return urllib.parse.urlunsplit(
+        (parts.scheme, parts.netloc, parts.path or "/", "", "")
+    )
 
 
 def doctor_report(config: Optional[FetchConfig] = None) -> dict[str, Any]:

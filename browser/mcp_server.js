@@ -22,7 +22,7 @@ const TOOLS = [
   {
     name: "browser_run",
     description:
-      "Run one read-only playbook in a real browser through the configured bridge. Returns the same record shape the CLI writes. Write-like actions stay denied unless allowWrite is explicitly true.",
+      "Run one read-only playbook in a real browser through the configured bridge. Returns the same record shape the CLI writes. MCP runs are always read-only and always check robots.txt; a user who needs a write action or an override must run the CLI directly.",
     inputSchema: {
       type: "object",
       properties: {
@@ -40,24 +40,6 @@ const TOOLS = [
         commentScrolls: { type: "integer", minimum: 0, maximum: 50 },
         observeMs: { type: "integer", minimum: 0, maximum: 60000 },
         minInterval: { type: "integer", minimum: 0 },
-        root: { type: "string", description: "Four-zone workspace root; writes process/web-forager/browser/ and _broadcast/." },
-        out: { type: "string", description: "Write the full JSON result to this file." },
-        bridge: { type: "string", description: "Bridge command. Defaults to the bundled playwright bridge, then WEB_FORAGER_BRIDGE." },
-        backend: { type: "string", enum: Object.keys(BACKENDS), description: "Backend label: iab, extension or cdp." },
-        dryRun: { type: "boolean", description: "Print the plan without opening a browser." },
-        allowWrite: {
-          type: "boolean",
-          description: "Permit write-like clicks. Only set after the user explicitly authorises one action.",
-        },
-        strictRobots: {
-          type: "boolean",
-          description: "Consult robots.txt before every navigation and refuse disallowed pages (default false).",
-        },
-        inputGate: {
-          type: "string",
-          enum: ["off", "mark", "strict"],
-          description: "How to treat instruction-shaped page text: mark (default), withhold the body (strict), or skip the scan (off).",
-        },
         core: {
           type: "boolean",
           description: "Report records in the shared core-1 schema instead of the full browser record.",
@@ -106,11 +88,7 @@ function runPlaybook(args) {
       "commentScrolls",
       "observeMs",
       "minInterval",
-      "root",
-      "out",
-      "bridge",
       "backend",
-      "inputGate",
     ];
     for (const key of textual) {
       if (args[key] === undefined || args[key] === null || args[key] === "") continue;
@@ -118,9 +96,11 @@ function runPlaybook(args) {
       argv.push(`--${flag}`, String(args[key]));
     }
     if (args.dryRun) argv.push("--dry-run");
-    if (args.allowWrite === true) argv.push("--allow-write");
-    if (args.strictRobots === true) argv.push("--strict-robots");
     if (args.core === true) argv.push("--core");
+    // MCP runs are always read-only and always check robots.txt. The model
+    // cannot turn either boundary off; a user who needs an override uses the
+    // CLI directly.
+    argv.push("--strict-robots");
 
     const child = spawn(process.execPath, argv, { cwd: __dirname, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";

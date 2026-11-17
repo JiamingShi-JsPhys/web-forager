@@ -141,7 +141,14 @@ async function start() {
   // WEB_FORAGER_BROWSER_PROFILE=off gives the old throwaway browser.
   const profile = profilePath();
   if (profile) {
-    fs.mkdirSync(profile, { recursive: true });
+    fs.mkdirSync(profile, { recursive: true, mode: 0o700 });
+    if (process.platform !== "win32") {
+      try {
+        fs.chmodSync(profile, 0o700);
+      } catch (error) {
+        // Best effort: the profile still works without POSIX modes.
+      }
+    }
     context = await playwright.chromium.launchPersistentContext(profile, {
       headless,
       ...(storageState ? { storageState } : {}),

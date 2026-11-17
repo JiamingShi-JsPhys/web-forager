@@ -7,7 +7,7 @@ robots.txt by :func:`engine.fetch_page` before its content is read.
 
 from __future__ import annotations
 
-import gzip
+import zlib
 import urllib.parse
 from typing import Any, Optional
 
@@ -18,15 +18,30 @@ def _local(tag: str) -> str:
     return tag.rsplit("}", 1)[-1].lower()
 
 
+MAX_DECOMPRESSED_BYTES = 32 * 1024 * 1024
+
+
 def _decode_sitemap(response: engine.HttpResponse) -> str:
     raw = response.content
     # Some servers answer .xml.gz URLs with plain XML, so trust the magic bytes
-    # rather than the URL suffix.
-    if raw[:2] == b"\x1f\x8b":
+    # rather than the URL suffix. A gzip payload is decompressed with a hard
+    # output cap: a few kilobytes can otherwise expand to gigabytes and take
+    # the process down before XML parsing even starts.
+    if raw[:2] == bytes([0x1f, 0x8b]):
         try:
-            raw = gzip.decompress(raw)
-        except OSError as exc:
+            decompressor = zlib.decompressobj(16 + zlib.MAX_WBITS)
+            raw = decompressor.decompress(raw, MAX_DECOMPRESSED_BYTES)
+            if decompressor.unconsumed_tail or len(raw) >= MAX_DECOMPRESSED_BYTES:
+                raise engine.ExtractionError(
+                    "sitemap expands beyond the 32 MiB safety limit"
+                )
+            raw += decompressor.flush()
+        except zlib.error as exc:
             raise engine.FetchError(f"cannot decompress sitemap: {exc}") from exc
+        if len(raw) > MAX_DECOMPRESSED_BYTES:
+            raise engine.ExtractionError(
+                "sitemap expands beyond the 32 MiB safety limit"
+            )
     return raw.decode(response.encoding or "utf-8", errors="replace")
 
 

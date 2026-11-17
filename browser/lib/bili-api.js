@@ -46,8 +46,19 @@ async function collectCookies() {
   return jar.join("; ");
 }
 
-async function searchVideos(query, limit = 20) {
+async function searchVideos(query, limit = 20, options = {}) {
   if (disabled()) throw new Error("disabled");
+  if (options.strictRobots) {
+    const { checkRobots } = require("./robots");
+    for (const target of [HOME, SEARCH]) {
+      const decision = await checkRobots(target);
+      if (!decision.allowed) {
+        throw new Error(
+          `robots_denied: ${target} (${decision.note || "matched a Disallow rule"})`,
+        );
+      }
+    }
+  }
   const cookie = await collectCookies();
   const url = `${SEARCH}?search_type=video&keyword=${encodeURIComponent(query)}&page=1`;
   const response = await fetch(url, {

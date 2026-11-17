@@ -19,7 +19,7 @@ from . import engine
 SCHOLAR_SOURCES = ("arxiv", "crossref", "pubmed", "doi")
 
 _ARXIV_API = (
-    "https://export.arxiv.org/api/query?search_query=all:{query}"
+    "https://export.arxiv.org/api/query?search_query={field}:{query}"
     "&start={start}&max_results={limit}&sortBy={sort}&sortOrder=descending"
 )
 _CROSSREF_API = (
@@ -79,6 +79,8 @@ def parse_arxiv(xml_text: str, limit: int = 10) -> list[dict[str, Any]]:
     for entry in root.findall(f"{_ATOM}entry")[:limit]:
         identifier = _text(entry, f"{_ATOM}id")
         abs_url = identifier
+        if abs_url.startswith("http://arxiv.org/"):
+            abs_url = "https://" + abs_url[len("http://") :]
         pdf_url = ""
         for link in entry.findall(f"{_ATOM}link"):
             if link.get("title") == "pdf" or link.get("type") == "application/pdf":
@@ -241,8 +243,19 @@ def _pubmed_abstracts(xml_text: str) -> dict[str, str]:
     return abstracts
 
 
+def _query_fetch(fetcher: engine.HttpFetcher, url: str) -> engine.HttpResponse:
+    """Fetch a scholarly query endpoint under the user-level query policy."""
+
+    config = fetcher.config
+    return fetcher.fetch(
+        url,
+        check_robots=config.query_robots != "ignore",
+        robots_policy=config.query_robots,
+    )
+
+
 def _fetch_json(fetcher: engine.HttpFetcher, url: str) -> Any:
-    response = fetcher.fetch(url, check_robots=False)
+    response = _query_fetch(fetcher, url)
     try:
         return json.loads(response.text)
     except json.JSONDecodeError as exc:
@@ -256,8 +269,15 @@ def search(
     limit: Optional[int] = None,
     fetcher: Optional[engine.HttpFetcher] = None,
     sort: str = "relevance",
+    field: str = "all",
 ) -> dict[str, Any]:
-    """Query one scholarly source and return normalised records."""
+    """Query one scholarly source and return normalised records.
+
+    ``field`` is the arXiv query field (``all``, ``ti``, ``au`` or ``abs``) and
+    is ignored by the other sources.  ``ti`` is useful when the caller already
+    has a paper title: it avoids the broad ``all`` search returning a different
+    paper that merely shares a phrase.
+    """
 
     source = (source or "arxiv").lower()
     if source not in SCHOLAR_SOURCES:
@@ -275,10 +295,16 @@ def search(
         if source == "arxiv":
             if sort not in ("relevance", "submittedDate", "lastUpdatedDate"):
                 raise ValueError("arXiv sort must be relevance, submittedDate or lastUpdatedDate")
+            if field not in ("all", "ti", "au", "abs"):
+                raise ValueError("arXiv field must be all, ti, au or abs")
             url = _ARXIV_API.format(
-                query=urllib.parse.quote_plus(query), start=0, limit=limit, sort=sort
+                field=field,
+                query=urllib.parse.quote_plus(query),
+                start=0,
+                limit=limit,
+                sort=sort,
             )
-            response = fetcher.fetch(url, check_robots=False)
+            response = _query_fetch(fetcher, url)
             records = parse_arxiv(response.text, limit=limit)
         elif source == "crossref":
             url = _CROSSREF_API.format(query=urllib.parse.quote_plus(query), limit=limit)
@@ -305,7 +331,7 @@ def search(
                 abstracts: dict[str, str] = {}
                 try:
                     fetch_url = _PUBMED_FETCH.format(ids=",".join(ids))
-                    abstracts = _pubmed_abstracts(fetcher.fetch(fetch_url, check_robots=False).text)
+                    abstracts = _pubmed_abstracts(_query_fetch(fetcher, fetch_url).text)
                 except engine.FetchError:
                     abstracts = {}
                 records = parse_pubmed(search_payload, summary_payload, abstracts, limit=limit)
@@ -313,6 +339,7 @@ def search(
         return {
             "source": source,
             "query": query,
+            "query_robots": config.query_robots,
             "count": len(records),
             "results": records,
         }

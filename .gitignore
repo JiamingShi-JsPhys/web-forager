@@ -6,3 +6,10 @@ __pycache__/
 tmp_run/
 .mypy_cache/
 browser/tests/.tmp*/
+
+# local build artifacts and tool caches
+*.zip
+.ruff_cache/
+
+# generated eval runs can contain fetched page text and are not release files
+evals/retrieval/results/*.json

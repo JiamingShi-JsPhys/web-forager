@@ -238,3 +238,30 @@ def test_default_user_agent_is_identifiable() -> None:
     assert f"WebForager/{engine.__version__}" in agent
     assert "Information Gathering" in agent
     assert "github.com/JiamingShi-JsPhys/web-forager" in agent
+
+
+def test_verbose_log_url_drops_query_and_fragment() -> None:
+    safe = engine.redact_url_for_log(
+        "https://example.org/a?access_token=secret&q=private#section"
+    )
+    assert safe == "https://example.org/a"
+    assert "secret" not in safe
+    assert "private" not in safe
+
+
+def test_http_fetcher_clone_shares_politeness_not_session() -> None:
+    config = engine.FetchConfig()
+    original = engine.HttpFetcher(config)
+    clone = original.clone()
+    try:
+        assert clone.robots is original.robots
+        assert clone.limiter is original.limiter
+        assert clone.session is not original.session
+    finally:
+        clone.close()
+        original.close()
+
+
+def test_uppercase_acronym_matches_lowercase_text() -> None:
+    assert engine._token_in_text("WHO", "who headquarters in geneva", set())
+    assert engine._token_in_text("NASA", "nasa.gov", set())

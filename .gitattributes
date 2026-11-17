@@ -8,3 +8,7 @@
 # of a published source archive.
 tests/ export-ignore
 browser/tests/ export-ignore
+
+# Internal evaluation corpus and deferred-work notes are repository-only.
+evals/ export-ignore
+TODO.md export-ignore

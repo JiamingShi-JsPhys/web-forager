@@ -6,7 +6,7 @@ Search, fetch, extract and browse live in one engine: 360 / Bing / Sogou / Sogou
 
 **English** · [简体中文](README_zh.md)
 
-**Version:** 1.3.0 | **License:** MIT | **Python:** 3.10+ | **Node:** 18+ (browser mode)
+**Version:** 1.3.1 | **License:** MIT | **Python:** 3.10+ | **Node:** 18+ (browser mode)
 
 > For learning and information gathering only. Read the [full legal notice](#full-legal-notice) before relying on any output.
 
@@ -51,8 +51,8 @@ A search API returns links and stops. A scraper reads pages and ignores the rule
 - **One engine, every content type.** HTML, PDF, DOCX, XLSX, EPUB, CSV, RSS/Atom, sitemaps, Bilibili and rendered pages all come back as the same four fields — `metadata`, `markdown`, `tables`, `warnings` — so the caller never branches on the source.
 - **Compliance is inside the fetcher, not in a README promise.** robots.txt, a per-origin delay, response-size caps, redirect limits and a contactable User-Agent apply to every request, including each search, sitemap and surf hop.
 - **It degrades instead of crashing.** A missing bridge is exit 3, missing Playwright is exit 6, missing `pypdf` is exit 7, a site without a sitemap is an empty result with a note, and a verification page is reported as `verification_required` rather than recycled as content.
-- **It tells the truth about what it read.** `engine_report` names every engine tried with its latency and error, `skipped` names every result that could not be read, `degraded` means the page was read but the playbook found nothing, and fetched text carries `trust: "untrusted"` with `injection_flags` when it looks like a prompt.
-- **Results are ordered and diversified.** Coverage, title match, a small domain prior and snippet freshness decide the order; the list keeps at most two results per host and fills from the overflow when too few hosts answered; a thin first pass retries once with a simplified query.
+- **It tells the truth about what it read.** `engine_report` names every engine tried with its latency and error, `skipped` names every result that could not be read, `degraded` means the page was read but the playbook found nothing, and fetched text carries `trust: "untrusted"` plus `injection_findings` — code, severity, character span and matching snippet — when it looks like a prompt.
+- **Results are ordered even when one engine answers.** Coverage, title and phrase match, a small domain prior and snippet freshness decide the order; duplicate URLs are canonicalized (`utm_*`, fragments, `www.`, trailing slash), multi-engine hits get an RRF contribution, and light stemming lets `injection` meet `injections`. A result needs the exact phrase or at least two meaningful query terms; a Chinese tutorial that merely repeats one English product name is marked `language_match: false` and dropped when enough real answers exist. The list keeps at most two results per host and fills from the overflow when too few hosts answered; a thin first pass retries once with a simplified query. A `search_quality` block counts relevant, off-topic and language-mismatched rows.
 - **A script shell is rendered, within a budget.** When a server returns almost no HTML, `--render auto` renders it once with Playwright before extraction; `fetch --query` and `surf` cap that at two pages per run.
 
 ---
@@ -77,7 +77,7 @@ Every host below has its own plugin marketplace. Register this repository's Git 
 https://github.com/JiamingShi-JsPhys/web-forager
 ```
 
-Append `#v1.3.0` to pin the install to this release. Drop it to follow the default branch.
+Append `#v1.3.1` to pin the install to this release. Drop it to follow the default branch.
 
 ## Method 3: install with commands
 
@@ -157,6 +157,17 @@ Search, then read the most relevant pages:
 python run.py --action fetch --query "city walk guide" --num-results 8 --max-pages 3
 ```
 
+Broad recall, then cited evidence only:
+
+```bash
+python run.py --action research --query "Python 3.12 asyncio.TaskGroup default exception handling" --focus 3
+```
+
+`research` ranks sources by relevance and an explicit authority tier, makes one
+narrow `site:` or arXiv-title query when the broad pool has no authoritative
+answer, reads a few distinct hosts, and returns the matching passages with their
+URLs plus an `answerability` verdict. It says `none`/`low` instead of inventing.
+
 A paper, without touching a result page:
 
 ```bash
@@ -170,6 +181,7 @@ Not sure which action you need?
 | You have | Use |
 |---|---|
 | one URL or a keyword | `--action fetch` |
+| a question that needs cited evidence | `--action research` |
 | a site you trust, no working search engine | `--action find --site <HOST> --query <TEXT>` |
 | a blog or news site | `--action feed --url <SITE>` |
 | a PDF, DOCX, XLSX, EPUB or CSV | `--action clean --input <FILE>` |
@@ -198,13 +210,13 @@ Add `--agent` to any action for a machine-readable `{"ok":true,"data":...}` enve
 }
 ```
 
-The HTTP server exposes ten tools (`web_fetch`, `web_search`, `web_surf`, `web_scholar`, `web_map`, `web_bilibili`, `web_clean`, `web_doctor`, `web_find`, `web_feed`); the browser server exposes four (`browser_list`, `browser_run`, `browser_session`, `browser_doctor`).
+The HTTP server exposes ten tools (`web_fetch`, `web_search`, `web_research`, `web_surf`, `web_scholar`, `web_map`, `web_bilibili`, `web_doctor`, `web_find`, `web_feed`); the browser server exposes four (`browser_list`, `browser_run`, `browser_session`, `browser_doctor`).
 
-Two switches keep a search cheap: `max_pages: 0` returns the result list with no page bodies, and `respect_robots: false` reads a page robots.txt disallows — only for resources you are authorised to read. `web_search` also returns `engine_report` and `warnings` when the results do not mention the query.
+MCP calls cannot relax the safety boundary: no tool parameter turns robots off, changes the injection gate, sets a proxy, supplies a browser bridge or allows a write action. The local file `clean` action is CLI-only and is not an MCP tool. One switch keeps a search cheap: `max_pages: 0` returns the result list with no page bodies. `web_search` also returns `engine_report` and `warnings` when the results do not mention the query.
 
 ### Browser mode (optional)
 
-Needs Node.js 18+ and a bridge command, and is read-only by default. Sign in once with `python browser/launch_chrome.py`, then pass `--backend cdp`; the eight playbooks, their switches, `--strict-robots`, storage-state and the cost controls are in the [full reference](docs/REFERENCE.md#browser-mode). `wechat-dig` is the one to reach for when an HTTP search found a WeChat article but robots.txt and the environment check stopped the read.
+Needs Node.js 18+ and a bridge command, and is read-only by default. Sign in once with `python browser/launch_chrome.py` (CDP is off by default; it opens the dedicated profile), then run the browser with the default backend, which reuses that profile. If you specifically need DevTools attach, start the launcher with `--cdp` and pass `--backend cdp`. The eight playbooks, their switches, `--strict-robots`, storage-state and the cost controls are in the [full reference](docs/REFERENCE.md#browser-mode). `wechat-dig` is the one to reach for when an HTTP search found a WeChat article but robots.txt and the environment check stopped the read.
 
 ---
 
@@ -262,7 +274,7 @@ flowchart LR
     M --> SM["robots Sitemap / sitemap index / .xml.gz"]
     W --> HTTP
     B --> HTTP
-    SEARCH --> RANK["rank + diversify<br/>coverage, title, prior, freshness"]
+    SEARCH --> RANK["rank + diversify<br/>coverage, phrase, language, freshness"]
     RANK --> HTTP["robots.txt check<br/>per-origin rate limit"]
     HTTP --> EXT
     EXT --> MD["Markdown + metadata + tables + chunks"]
@@ -306,7 +318,7 @@ The first is a success. The second is still a success — it says what it could 
 
 ```text
 web-forager/
-├── run.py                 # one CLI entry: fetch, find, feed, clean, surf, scholar, map, bili, doctor
+├── run.py                 # one CLI entry: fetch, research, find, feed, clean, surf, scholar, map, bili, doctor
 ├── mcp_server.py          # stdio JSON-RPC, ten HTTP tools
 ├── scripts/               # engine, extractors, search parsers, robots, cache, untrusted screen
 ├── browser/               # Node browser mode: run.js, MCP server, playbooks, bridge, profile launcher
@@ -348,8 +360,17 @@ The tool makes the requests a prompt or an agent asks for, so the boundaries are
 
 - **Private targets are refused.** Loopback, RFC 1918, link-local (including `169.254.169.254`), CGNAT and their IPv6 forms are rejected before a socket opens, and again on every redirect hop, so a public URL cannot bounce the client into the LAN. `--allow-private` exists for local fixtures and trusted intranet tools and is off by default. The browser side installs the same guard as a request filter, so a hostile page cannot probe `http://127.0.0.1:...`.
 - **robots.txt is a policy, not a lock.** The default `--robots-policy respect` refuses a disallowed path. `warn` reads it and writes `compliance.robots_overridden: true`; `ignore` records that robots was not consulted. A denial is reported to the caller — it is not a cue to retry the same URL with a tool that ignores robots.
+- **Query endpoints have their own policy.** Search engines and scholarly APIs are not target pages, so they use `--query-robots` (or `WEB_FORAGER_QUERY_ROBOTS`), default `warn`. Bing, 360, Sogou and the arXiv export API disallow their query paths, so the default reads them and records `query_robots: warn` in the engine report; `respect` refuses, and `ignore` skips the check. Only a user can choose, and MCP never accepts the switch from the model.
 - **The browser keeps its own profile.** The bundled bridge stores state under `~/.web-forager/browser/profile`, not in the browser you use every day. `browser/launch_chrome.py` starts Chrome on that profile, and `--save-storage-state` writes a Playwright state file with mode `0600` (refused inside `--root`). Attaching over CDP to a personal browser still works, but the run is marked `shared_browser: true` with a warning: every cookie and login in that profile is reachable by the pages a playbook opens.
-- **Fetched text is data, and says so.** Every record carries `trust: "untrusted"`. When a page contains instruction-shaped text — "ignore previous instructions", fake system tags, `curl ... | sh`, requests to send keys or environment variables — the matching codes appear in `injection_flags` and a warning sits first in the list. `--input-gate strict` withholds the body instead. This is a screen, not a sandbox: the host must still keep untrusted content, private data and outbound requests out of one autonomous loop.
+- **Fetched text is data, and says so.** Every record carries `trust: "untrusted"`. When a page contains instruction-shaped text, `injection_findings` records the code, severity, character span and a short matching snippet; the first warning repeats up to three of those snippets. Hard rules (forged system tags, secret-exfiltration requests, `curl ... | sh`, `rm -rf /`) can make `--input-gate strict` withhold the body. Soft rules ("ignore previous instructions", role swaps) are reported but never withhold on their own, because papers and security notes quote them legitimately. The scan covers the whole body in overlapping windows, before `max_chars` truncation. This is a screen, not a sandbox: the host must still keep untrusted content, private data and outbound requests out of one autonomous loop.
+
+### Privacy and local state
+
+- **No telemetry, no account, no API key.** The plugin does not send usage data anywhere; it makes the requests you ask for to the selected search engine, scholarly API or site. Your query and the target URL necessarily leave the machine for that request.
+- **On-disk state is local.** With caching on, page bodies and response metadata live under `~/.web-forager/cache` for one hour; responses that set cookies are not cached, and `Authorization` / `Proxy-Authorization` headers are stripped. On POSIX the cache directory is `0700` and its files `0600`.
+- **Sessions and browser state are local too.** Surf sessions (`~/.web-forager/sessions`) contain visited URLs; browser sessions live under `~/.web-forager/browser/sessions`; `--save-storage-state` writes cookies with mode `0600`; the dedicated browser profile is `0700`. `--verbose` logs the scheme, host and path only; the query string and fragment are dropped, so a signed URL does not put its token on stderr.
+- **The DevTools port is off by default.** `browser/launch_chrome.py` opens only the dedicated profile unless you pass `--cdp`; then it binds Chrome's CDP port to loopback and picks a random free port (`--port 9222` makes it fixed). Any local process can still attach while it is open, so keep it on loopback and close the browser when you are finished.
+- **Personal data is not a target.** The doxxing guard refuses explicit person-profiling queries and warns on a bare name; it is intent-based, not a guarantee. Do not use the tool to collect or assemble private information about an identifiable person.
 
 ---
 
@@ -378,7 +399,7 @@ python -m pytest
 node --test "browser/tests/*.test.js"
 ```
 
-258 Python tests and 87 browser tests, all offline. The Python suite starts a temporary local HTTP server for robots.txt, articles, PDF/Office files, feeds, sitemaps, search-result pages and multi-hop surf pages; the browser suite uses a fake backend and fake bridges that speak the same wire protocol, plus snapshots recorded from live pages. CI runs both from a repository clone; release archives exclude the test folders.
+332 Python tests and 91 browser tests, all offline. The Python suite starts a temporary local HTTP server for robots.txt, articles, PDF/Office files, feeds, sitemaps, search-result pages and multi-hop surf pages; the browser suite uses a fake backend and fake bridges that speak the same wire protocol, plus snapshots recorded from live pages. CI runs both from a repository clone; release archives exclude the test folders.
 
 ## Full legal notice
 
@@ -420,7 +441,8 @@ Keep this disclaimer and the licence notice with any copy you publish or fork.
 - **PDF extraction reads the text layer only.** Scanned PDFs need OCR, which this plugin does not do.
 - **Login walls are not bypassed.** `zhihu-dig` and `xhs-dig` stop with `login_required`; reuse a logged-in profile through your bridge.
 - **WeChat articles are not read in HTTP mode.** robots.txt disallows `/s`, and with an override the URL returns an environment check. The record says `verification_required`; `wechat-dig` can read the article only in a profile that has already passed that check.
-- **robots.txt unreachable means deny.** That is the conservative RFC behaviour. `--ignore-robots` is only for resources you are explicitly authorised to access. Browser mode consults robots.txt only under `--strict-robots`, and the record always states whether the check was made (`compliance.robots_checked`).
+- **Default search records a robots override.** Bing, 360, Sogou and the arXiv export API disallow their query paths. `--query-robots` defaults to `warn`, so search works but the engine report names the override; set `respect` to refuse a disallowed endpoint, or `ignore` to skip the check.
+- **robots.txt unreachable means deny.** That is the conservative RFC behaviour. `--ignore-robots` is only for resources you are explicitly authorised to access. MCP browser runs always pass `--strict-robots`; CLI browser runs consult robots.txt under `--strict-robots`, and every HTTP and browser redirect hop is re-checked. The record always states whether the check was made (`compliance.robots_checked`).
 
 ### Edge cases
 
