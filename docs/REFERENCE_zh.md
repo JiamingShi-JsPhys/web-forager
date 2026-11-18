@@ -13,7 +13,7 @@
 
 HTTP 工具：`web_fetch`、`web_search`、`web_research`、`web_surf`、`web_scholar`、`web_map`、`web_bilibili`、`web_doctor`、`web_find`、`web_feed`。浏览器工具：`browser_list`、`browser_run`、`browser_session`、`browser_doctor`。
 
-MCP 调用始终只读，并保持目标页边界：没有任何工具参数能改 `respect_robots`、`robots_policy`、`input_gate`、代理、浏览器桥命令或写开关，本地文件 `clean` 动作也不对 MCP 暴露。搜索引擎与学术查询接口有单独的用户级策略（命令行 `--query-robots`，服务进程环境变量 `WEB_FORAGER_QUERY_ROBOTS`），默认 `warn`：会读取被禁止的查询路径，并在引擎报告里写明这次覆盖；`respect` 会拒绝。模型无法通过工具调用改变它。
+MCP 调用始终只读，并保持目标页边界：没有任何工具参数能改 `respect_robots`、`robots_policy`、`input_gate`、代理、浏览器桥命令或写开关，本地文件 `clean` 动作也不对 MCP 暴露。搜索引擎与学术查询接口有单独的用户级策略（命令行 `--query-robots`，服务进程环境变量 `WEB_FORAGER_QUERY_ROBOTS`），默认 `warn`：会读取被禁止的查询路径，并在引擎报告里写明这次覆盖；`respect` 会拒绝。模型无法通过工具调用改变它。启动 MCP 服务的操作员可以为目标页设置 `WEB_FORAGER_ROBOTS_POLICY=warn`（或 `ignore`）；默认仍是 `respect`，每条被覆盖的记录仍会写 `compliance.robots_overridden: true`。模型既不能设置这个变量，也不能通过参数传入。
 
 </details>
 
@@ -52,7 +52,7 @@ node browser/run.js --playbook wechat-dig --url "https://mp.weixin.qq.com/s/..."
 | `search-dig` | 搜 B 站、排序卡片、打开最佳未见结果 | `--query` |
 | `wechat-dig` | 单篇公众号文章；遇到环境校验页就如实报告，不把错误页当正文 | `--url` |
 
-公众号是 HTTP 模式唯一走不完的一类：`mp.weixin.qq.com` 在 robots.txt 里禁止 `/s`，即使加 `--robots-policy warn`，文章 URL 也会返回「环境异常」或跳转到验证码页，而不是正文；HTTP 记录会写成 `verification_required`（退出码 9），不会把错误页当成内容交出去。`wechat-dig` 在真实浏览器配置里打开同一个 URL：该配置已通过微信校验时能读到正文，没通过时报告 `blocked`，不会去解验证码。
+公众号是 HTTP 模式唯一走不完的一类：`mp.weixin.qq.com` 在 robots.txt 里禁止 `/s`，即使加 `--robots-policy warn`，文章 URL 也会返回「环境异常」或跳转到验证码页，而不是正文；HTTP 记录会写成 `verification_required`（退出码 9），不会把错误页当成内容交出去。B 站视频页同样会检查：遇到 `验证码_哔哩哔哩` 拦截页时返回 `verification_required`（退出码 9），不会交出一条标题为空、统计为空的假记录。`wechat-dig` 在真实浏览器配置里打开同一个 URL：该配置已通过微信校验时能读到正文，没通过时报告 `blocked`，不会去解验证码。
 
 装好 `playwright` 与它的 Chromium 后，自带的桥会被自动启用；`--bridge` 或 `WEB_FORAGER_BRIDGE` 用于指向别处的桥。命令按空白拆分后直接启动，不经过 shell——路径含空格时加引号，参数照常写；管道、`&&` 与重定向不会被解释。`WEB_FORAGER_BROWSER_HEADFUL=1` 显示窗口；`WEB_FORAGER_BROWSER_PROFILE=/path` 复用持久化配置目录（`extension` 后端的登录态正是靠它保留）；`WEB_FORAGER_BROWSER_CDP=http://127.0.0.1:9222` 接管你已有的浏览器（`cdp`）。桥通过可选的 `describe` 调用声明自己实现了什么；不实现 `describe` 的桥会被标记为 `declared: false`，所有能力一律为 false。
 
@@ -66,7 +66,7 @@ node browser/run.js --playbook wechat-dig --url "https://mp.weixin.qq.com/s/..."
 
 ## 搜索引擎不可用时
 
-默认搜索走 `auto`。以中日韩文字为主的查询会同时问 360、搜狗与搜狗微信——中文人名或机构名通常只有微信文章索引这条渠道有内容——并且不会交给 Bing：Bing 会把中文短语拆成单字，返回词典页。这类单字词典页无论来自哪个引擎都会被过滤掉；确有需要时可以用 `--engine bing` 明确指定。
+默认搜索走 `auto`。以中日韩文字为主的查询会同时问 360、搜狗与搜狗微信——中文人名或机构名通常只有微信文章索引这条渠道有内容——首轮不交给 Bing：Bing 会把中文短语拆成单字，返回词典页。这类单字词典页无论来自哪个引擎都会被过滤掉。若中文引擎首轮结果偏薄，且查询里同时出现拉丁词（API、版本号、产品名），会追加一次 Bing 回退——这半个问题通常只存在于英文文档里。确有需要时也可以用 `--engine bing` 明确指定。
 
 另有两条完全不依赖搜索引擎的路：
 
@@ -137,9 +137,11 @@ python run.py --action bili --mode feed --max-items 10
 
 `injection_findings` 是一个列表，每项包含 `{code, severity, confidence, span, snippet, context}`。`span` 是扫描文本里的字符区间，`severity` 为 `hard` 或 `soft`，`context` 为 `direct`、`quote` 或 `example`。硬规则描述具体动作（伪造 system 标签、外传密钥、`curl ... | sh`、`rm -rf /`），只有命中硬规则时 `--input-gate strict` 才扣留正文；软规则是“忽略之前的指令”和角色切换，只报告、不扣留，因为论文与安全文章会合法引用它们。扫描用重叠窗口覆盖全文，发生在 `max_chars` 截断之前；`warnings` 第一条会重复最多三条命中片段。
 
-搜索结果按查询覆盖度、短语与标题命中、域名先验、摘要时效与引擎顺序排序，**只有一个引擎应答时同样排序**。每条结果带 `coverage`、`matched_terms`、`relevance` 与 `language_match`。结果包含完整短语，或至少两个有意义的查询词且覆盖一半查询时，才算相关；只重复一个产品名的异语言页面会标 `language_match: false`。跑题结果排在最后，真有至少三条相关结果时直接剔除；否则保留并在 `warnings` 里说明数量。最终列表每个域名最多两条，避免单一站点挤掉其他来源；来源不足时再用溢出的结果补满。首轮结果过少时会用简化查询重试一次（去掉引号与常见停用词，或把带空格的中文查询合并），重试会在 `engine_report` 里标 `query_variant`。搜索标题与摘要也走同一套注入扫描，命中的结果会带自己的 `injection_flags` 与 `injection_findings`。
+搜索结果按查询覆盖度、短语与标题命中、域名先验、摘要时效与引擎顺序排序，**只有一个引擎应答时同样排序**。每条结果带 `coverage`、`matched_terms`、`relevance` 与 `language_match`。结果包含完整短语，或至少两个有意义的查询词且覆盖一半查询时，才算相关；只重复一个产品名的异语言页面会标 `language_match: false`。跑题结果排在最后，真有至少三条相关结果时直接剔除；否则保留并在 `warnings` 里说明数量。最终列表先保证每个域名一条，再允许第二条（仍最多两条），避免单一站点挤掉其他来源；来源不足时再用延后与溢出的结果补满。首轮结果过少时会用简化查询重试一次（去掉引号与常见停用词，或把带空格的中文查询合并），重试会在 `engine_report` 里标 `query_variant`。搜索标题与摘要也走同一套注入扫描，命中的结果会带自己的 `injection_flags` 与 `injection_findings`。
 
-排序前会先规范化 URL：`utm_*`、`fbclid`、片段、`www.`、末尾斜杠与 `/amp` 不再把同一篇文章算成两条结果。被多个引擎同时返回的结果会获得 RRF 加分；标题与查询完全一致时比“标题包含短语”略高。匹配阶段使用轻量英文词形归一，所以 `injection` 能遇到 `injections`，但显示的查询与正文不变。搜索载荷还带 `search_quality: {query, engine, returned, relevant, off_topic, language_mismatch, engines_answered, engine_errors, dropped_off_topic, returned_before_filter}`，供不想解析英文 warnings 的智能体直接读取。
+排序前会先规范化 URL：`utm_*`、`fbclid`、片段、`www.`、末尾斜杠与 `/amp` 不再把同一篇文章算成两条结果。被多个引擎同时返回的结果会获得 RRF 加分；标题与查询完全一致时比“标题包含短语”略高。匹配阶段使用轻量英文词形归一，所以 `injection` 能遇到 `injections`，但显示的查询与正文不变。搜狗微信返回的带时效签名链接（`mp.weixin.qq.com/s?src=11&timestamp=...`）会标为 `ephemeral: true` 并附警告：用标题去找稳定转载，不要把该 URL 当长期引用。搜索载荷还带 `search_quality: {query, engine, returned, relevant, off_topic, language_mismatch, ephemeral, qa_dump, official_backfill, authority_tiers, high_authority, engines_answered, engine_errors, dropped_off_topic, returned_before_filter, parser_drift, risk, evidence}`，供不想解析英文 warnings 的智能体直接读取。`risk` 含 `no_authoritative_source`、`wechat_heavy`、`single_engine`；事实、新闻、政策、对比类问题里第一项还会附一条警告：从这份列表里取到的事实未经证实。`evidence` 的结构是 `{checked, status, anchors}`：非题库结果里含有问题所指的具体片段时 `status` 为 `supported`，只含一部分为 `uncertain`，完全不含为 `unsupported`，而新闻汇总、对比与操作指南类问题为 `not_checked`。`unsupported` 的列表会附一条警告：这些页面讲的是话题，不是答案。题库与答案页（`题库`、`/tiku/`、皮皮学、刷刷题）会被降权并标为 `reliable: false`，且不参与这项判断。同一篇文章的转载会在排序前合并；前几个位置先保证每个域名一条，再允许第二个。顶部的列表没有任何一手、官方或学术来源时，会补上明确标为 `source: "official-entry"` 且 `targeted: true` 的官方页。
+
+`fetch --query` 会把每个失败 URL 与错误码留在 `skipped` 里，并在 `warnings` 中重复一份逐条摘要；抽取正文不足 200 字符的页面也会被标成 thin。空 Markdown 属于抽取失败，不会当成成功页面。每个跳过项都保留结果列表里已有的标题与摘要，并标 `partial: true`；被 robots 拒绝的公众号结果至少还能作为搜索级线索引用。
 
 加 `--core` 时返回共享形状：
 
@@ -208,6 +210,17 @@ python run.py --action fetch --url "https://example.org/article" --root <WS>
 对比题或技术题已经有两个权威全文来源时，纯公众号摘要会被跳过，而不是混进证据。
 HTTP 读不了的公众号文章仍只返回 `partial` 搜索摘要并明确警告，不伪造全文。
 所有句段都是带 URL 的第三方引用文本。
+
+## 学术记录
+
+`--action scholar` 通过公开 API 查询 arXiv、Crossref、PubMed，或解析 DOI。`--sort relevance|submittedDate|lastUpdatedDate` 与 `--field all|ti|au|abs` 只对 arXiv 生效，其他源会忽略。
+
+```bash
+python run.py --action scholar --source arxiv --query "deep residual learning" --field ti --num-results 5
+python run.py --action scholar --source doi --query 10.1234/example.2025.0001
+```
+
+`published` 与 `updated` 在所有源里统一为 `YYYY[-MM[-DD]]`，只保留记录本身具有的精度。Crossref 文献检索会过滤 `type: component`（图注、表格、补充材料）；直接按 DOI 查询时，即使该 DOI 是 component 也保留这一条。Crossref 未注册的 DOI 返回 `not_found`，退出码 2，不再报成通用网络错误。
 
 ## 动作与退出码
 
@@ -324,7 +337,7 @@ python -m pytest tests -q
 npm run test:browser
 ```
 
-共 **333 个 Python 测试**加 **91 个浏览器测试**，全部离线通过。
+共 **385 个 Python 测试**加 **92 个浏览器测试**，全部离线通过。
 
 <details>
 <summary>测试覆盖了什么</summary>

@@ -124,6 +124,20 @@ _OFFICIAL_ENTRY_POINTS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ),
     ),
     (
+        ("gdpr", "general data protection regulation", "被遗忘权", "第 17 条"),
+        (
+            "https://gdpr-info.eu/art-17-gdpr/",
+            "https://eur-lex.europa.eu/eli/reg/2016/679/oj",
+        ),
+    ),
+    (
+        ("ai act", "artificial intelligence act", "人工智能法案"),
+        (
+            "https://artificialintelligenceact.eu/",
+            "https://digital-strategy.ec.europa.eu/en/policies/regulatory-framework-ai",
+        ),
+    ),
+    (
         (
             "经济政策",
             "国务院常务会议",

@@ -1,9 +1,9 @@
 ---
 trigger: always_on
-description: web-forager operating rules (v1.3.1)
+description: web-forager operating rules (v1.3.2)
 ---
 
-# web-forager — agent operating rules (v1.3.1)
+# web-forager — agent operating rules (v1.3.2)
 
 web-forager is a clean-room, robots-aware public-web intelligence layer. It
 searches, fetches, extracts and browses the open web to collect public information; it

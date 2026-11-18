@@ -85,3 +85,20 @@ test("guarded navigation blocks a private target before the backend runs", async
   );
   assert.equal(called, false);
 });
+
+test("IPv6-mapped loopback is blocked after URL normalisation", async () => {
+  // WHATWG URL rewrites [::ffff:127.0.0.1] to [::ffff:7f00:1]; both spellings
+  // and the deprecated compatible form must be refused, not just the dotted
+  // literal that isBlockedIp happens to understand.
+  for (const url of [
+    "http://[::ffff:127.0.0.1]/",
+    "http://[::ffff:7f00:1]/",
+    "http://[::127.0.0.1]/",
+  ]) {
+    assert.equal(await isPublicRequestUrl(url, { allowPrivate: false }), false, url);
+    await assert.rejects(
+      () => assertPublicUrl(url, { allowPrivate: false }),
+      (error) => error.code === "unsafe_url",
+    );
+  }
+});

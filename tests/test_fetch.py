@@ -106,6 +106,41 @@ def test_robots_warn_reads_the_path_and_records_the_override(site: str) -> None:
         "robots_overridden": True,
     }
     assert any("robots.txt disallows" in warning for warning in page["warnings"])
+    assert any("'warn'" in warning for warning in page["warnings"])
+
+
+def test_ignore_policy_is_not_reported_as_warn(site: str) -> None:
+    """A record must name the policy it used, not the one it did not."""
+
+    page = engine.fetch_page(
+        f"{site}/private/secret.html", local_config(respect_robots=False)
+    )
+    assert page["compliance"] == {
+        "robots_checked": False,
+        "robots_policy": "ignore",
+        "robots_overridden": False,
+    }
+    assert not any("'warn'" in warning for warning in page["warnings"])
+
+
+def test_a_warn_cached_body_does_not_claim_an_override_under_ignore(
+    site: str, tmp_path: object
+) -> None:
+    """The cached override flag belongs to the policy that produced the body."""
+
+    cache_dir = str(tmp_path) + "/cache"  # type: ignore[operator]
+    engine.fetch_page(
+        f"{site}/private/secret.html",
+        local_config(robots_policy="warn", cache=True, cache_dir=cache_dir),
+    )
+    page = engine.fetch_page(
+        f"{site}/private/secret.html",
+        local_config(respect_robots=False, cache=True, cache_dir=cache_dir),
+    )
+    assert page["cached"] is True
+    assert page["compliance"]["robots_overridden"] is False
+    assert page["compliance"]["robots_policy"] == "ignore"
+    assert not any("'warn'" in warning for warning in page["warnings"])
 
 
 def test_allowed_page_records_a_clean_compliance_block(site: str) -> None:

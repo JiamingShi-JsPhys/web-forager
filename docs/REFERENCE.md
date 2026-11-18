@@ -13,7 +13,7 @@
 
 HTTP tools: `web_fetch`, `web_search`, `web_research`, `web_surf`, `web_scholar`, `web_map`, `web_bilibili`, `web_doctor`, `web_find`, `web_feed`. Browser tools: `browser_list`, `browser_run`, `browser_session`, `browser_doctor`.
 
-MCP calls are always read-only and keep the target-page boundary: no tool parameter can change `respect_robots`, `robots_policy`, `input_gate`, the proxy, the browser bridge or a write switch, and the local file `clean` action is not exposed over MCP. Search-engine and scholarly query endpoints have a separate user-level policy (`--query-robots` on the CLI, `WEB_FORAGER_QUERY_ROBOTS` in the server environment), default `warn`: a disallowed query path is read and the engine report names the override; `respect` refuses it. The agent cannot change this through a tool call.
+MCP calls are always read-only and keep the target-page boundary: no tool parameter can change `respect_robots`, `robots_policy`, `input_gate`, the proxy, the browser bridge or a write switch, and the local file `clean` action is not exposed over MCP. Search-engine and scholarly query endpoints have a separate user-level policy (`--query-robots` on the CLI, `WEB_FORAGER_QUERY_ROBOTS` in the server environment), default `warn`: a disallowed query path is read and the engine report names the override; `respect` refuses it. The agent cannot change this through a tool call. The operator who starts the MCP server may set `WEB_FORAGER_ROBOTS_POLICY=warn` (or `ignore`) for target pages; the default is `respect`, and every overridden record still carries `compliance.robots_overridden: true`. A model cannot set this variable or pass it as an argument.
 
 </details>
 
@@ -52,7 +52,7 @@ node browser/run.js --playbook wechat-dig --url "https://mp.weixin.qq.com/s/..."
 | `search-dig` | Bilibili search, rank cards, open the best unseen result | `--query` |
 | `wechat-dig` | One WeChat article; reports the environment-check wall instead of recycling it | `--url` |
 
-WeChat articles are the one case HTTP mode cannot finish. `mp.weixin.qq.com` disallows `/s` in robots.txt, and even with `--robots-policy warn` the article URL answers with an environment-check page or a captcha redirect instead of the body; the HTTP record reports `verification_required` (exit 9) rather than handing back the error page as content. `wechat-dig` opens the same URL in a real browser profile. If that profile has already passed WeChat's check, the article is captured; if not, the playbook reports `blocked` and does not attempt the challenge.
+WeChat articles are the one case HTTP mode cannot finish. `mp.weixin.qq.com` disallows `/s` in robots.txt, and even with `--robots-policy warn` the article URL answers with an environment-check page or a captcha redirect instead of the body; the HTTP record reports `verification_required` (exit 9) rather than handing back the error page as content. Bilibili video pages are checked the same way: a captcha interstitial becomes `verification_required` (exit 9), not a record with an empty title and statistics. `wechat-dig` opens the same URL in a real browser profile. If that profile has already passed WeChat's check, the article is captured; if not, the playbook reports `blocked` and does not attempt the challenge.
 
 The bundled bridge is picked up automatically once `playwright` and its Chromium binary are installed; `--bridge` or `WEB_FORAGER_BRIDGE` points at a bridge elsewhere. The command is split on whitespace and started without a shell, so quote a path that contains spaces and pass arguments as usual; pipes, `&&` and redirection are not interpreted. `WEB_FORAGER_BROWSER_HEADFUL=1` shows the window, `WEB_FORAGER_BROWSER_PROFILE=/path` reuses a persistent profile (this is what carries login state for the `extension` backend), and `WEB_FORAGER_BROWSER_CDP=http://127.0.0.1:9222` attaches to a browser you already control (`cdp`). A bridge declares its real capabilities through an optional `describe` call; one that does not implement it is reported as `declared: false` with every capability false.
 
@@ -66,7 +66,7 @@ A browser run is the most expensive thing the plugin does, so its defaults are s
 
 ## When the engines are blocked
 
-Search defaults to `auto`. A mostly-CJK query goes to 360, Sogou and Sogou WeChat — the article index is the one channel that normally carries a Chinese person's or institution's name — and is not handed to Bing, which splits such a phrase into single characters and answers with dictionary pages. Those pages are dropped from any engine's results. An agent that wants Bing for a Chinese query can still ask with `--engine bing`.
+Search defaults to `auto`. A mostly-CJK query goes to 360, Sogou and Sogou WeChat — the article index is the one channel that normally carries a Chinese person's or institution's name — and is not handed to Bing first, which splits such a phrase into single characters and answers with dictionary pages. Those pages are dropped from any engine's results. When the Chinese engines come back thin and the query still names something written in Latin (an API, a version, a product), one Bing fallback query is added, because that half of the question usually lives in English documentation. An agent that wants Bing for a Chinese query can always ask with `--engine bing`.
 
 Two routes need no search engine at all:
 
@@ -137,9 +137,11 @@ python run.py --action bili --mode feed --max-items 10
 
 `injection_findings` is a list of `{code, severity, confidence, span, snippet, context}`. `span` is a character range in the scanned text, `severity` is `hard` or `soft`, and `context` is `direct`, `quote` or `example`. Hard rules describe an action (forged system tag, secret exfiltration, `curl ... | sh`, `rm -rf /`); `--input-gate strict` withholds a body only when one matches. Soft rules describe override or role-swap language and never withhold on their own, because papers and security notes quote them. The scanner walks the whole body in overlapping windows, before `max_chars` truncation, and the first warning repeats up to three matching snippets.
 
-Search results are ordered by query coverage, phrase and title match, a small domain prior, snippet freshness and engine order — including when only one engine answered. Each result carries `coverage`, `matched_terms`, `relevance` and `language_match`. A result is relevant when it contains the exact phrase or at least two meaningful query terms with half the query covered; a wrong-language page that repeats one product name is `language_match: false`. Off-topic rows are ranked last, and are dropped when at least three relevant results exist; otherwise a warning names how many were kept. The final list keeps at most two results per host, so one dominant host cannot crowd out every other source; when too few hosts answered, the overflow fills the remaining slots. A thin first pass is retried once with a simplified query (quotes and common stopwords removed, or a spaced CJK query joined); that retry appears in `engine_report` with `query_variant`. Search titles and snippets pass through the same injection scanner, and a matching result carries its own `injection_flags` and `injection_findings`.
+Search results are ordered by query coverage, phrase and title match, a small domain prior, snippet freshness and engine order — including when only one engine answered. Each result carries `coverage`, `matched_terms`, `relevance` and `language_match`. A result is relevant when it contains the exact phrase or at least two meaningful query terms with half the query covered; a wrong-language page that repeats one product name is `language_match: false`. Off-topic rows are ranked last, and are dropped when at least three relevant results exist; otherwise a warning names how many were kept. The final list takes one result per host before any host takes a second (still at most two), so one dominant host cannot crowd out every other source; when too few hosts answered, the deferred rows and the overflow fill the remaining slots. A thin first pass is retried once with a simplified query (quotes and common stopwords removed, or a spaced CJK query joined); that retry appears in `engine_report` with `query_variant`. Search titles and snippets pass through the same injection scanner, and a matching result carries its own `injection_flags` and `injection_findings`.
 
-Before ranking, duplicate URLs are canonicalized: `utm_*`, `fbclid`, fragments, `www.`, trailing slashes and `/amp` no longer make one article look like two results. A result found by more than one engine receives a reciprocal-rank-fusion contribution, and an exact title match gets a small bonus over a title that merely contains the phrase. Light English stemming is used for matching only, so `injection` meets `injections` without changing the displayed query or text. The search payload also carries `search_quality: {query, engine, returned, relevant, off_topic, language_mismatch, engines_answered, engine_errors, dropped_off_topic, returned_before_filter}`, a machine-readable summary for agents that do not want to parse the prose warnings.
+Before ranking, duplicate URLs are canonicalized: `utm_*`, `fbclid`, fragments, `www.`, trailing slashes and `/amp` no longer make one article look like two results. A result found by more than one engine receives a reciprocal-rank-fusion contribution, and an exact title match gets a small bonus over a title that merely contains the phrase. Light English stemming is used for matching only, so `injection` meets `injections` without changing the displayed query or text. A time-signed WeChat search link (`mp.weixin.qq.com/s?src=11&timestamp=...`) is marked `ephemeral: true` and gets a warning: use its title to find a stable copy rather than citing the URL long-term. The search payload also carries `search_quality: {query, engine, returned, relevant, off_topic, language_mismatch, ephemeral, qa_dump, official_backfill, authority_tiers, high_authority, engines_answered, engine_errors, dropped_off_topic, returned_before_filter, parser_drift, risk, evidence}`, a machine-readable summary for agents that do not want to parse the prose warnings. `risk` carries `no_authoritative_source`, `wechat_heavy` and `single_engine`; for a factual, news, policy or comparison question the first also adds a warning that any fact taken from the list is unverified. `evidence` is `{checked, status, anchors}`: `status` is `supported` when a non-quiz result contains the specific run the question names, `uncertain` when only part of it appears, `unsupported` when none does, and `not_checked` for a broad round-up, a comparison or a how-to. An `unsupported` list gets a warning that the pages are about the topic, not the answer. Quiz and answer-key pages (an `/tiku/` path, pipixue.com, shuashuati.com) are demoted, carry `reliable: false` and are excluded from this check. Reposted copies of one article are merged before ranking, and the first slots take one result per host before any host takes a second. When the top results carry no primary, official or academic source, curated official pages are added as `source: "official-entry"` rows with `targeted: true`.
+
+`fetch --query` keeps each failed URL and its code in `skipped`, repeats a short per-URL summary in `warnings`, and flags any accepted page whose extracted text is under 200 characters as thin. An empty Markdown body is an extraction failure, not a successful page. Every skip keeps the title and snippet the result list already carried and marks the entry `partial: true`, so a robots-denied WeChat result still gives the caller something to cite at search level.
 
 `--core` returns the shared shape instead:
 ```json
@@ -214,6 +216,17 @@ already present for a comparison or technical question, a WeChat-only snippet is
 skipped rather than mixed in. A WeChat link that HTTP mode cannot read still
 yields a `partial` search-snippet record with an explicit warning, never a
 fabricated full article. Every passage is quoted, untrusted page text.
+
+## Scholarly records
+
+`--action scholar` queries arXiv, Crossref, PubMed, or resolves a DOI through the public APIs. `--sort relevance|submittedDate|lastUpdatedDate` and `--field all|ti|au|abs` apply to arXiv only; the other sources ignore them.
+
+```bash
+python run.py --action scholar --source arxiv --query "deep residual learning" --field ti --num-results 5
+python run.py --action scholar --source doi --query 10.1234/example.2025.0001
+```
+
+`published` and `updated` use `YYYY[-MM[-DD]]` across all sources, with only the precision the record actually carries. A Crossref bibliographic search drops `type: component` rows (figures, tables and supplementary files); a direct DOI lookup keeps its single record even when it is a component. A DOI that Crossref has not registered returns `not_found` and exit code 2, not a generic network error.
 
 ## Actions and exit codes
 
@@ -331,7 +344,7 @@ python -m pytest tests -q
 npm run test:browser
 ```
 
-That is **333 Python tests** plus **91 browser tests**, all passing and fully offline.
+That is **385 Python tests** plus **92 browser tests**, all passing and fully offline.
 
 <details>
 <summary>What the suites cover</summary>

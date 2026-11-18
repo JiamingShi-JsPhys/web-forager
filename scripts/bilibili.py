@@ -485,6 +485,23 @@ def _fetch_raw(url: str, fetcher: engine.HttpFetcher) -> engine.HttpResponse:
     return fetcher.fetch(url)
 
 
+def _reject_verification_page(markdown: str, title: str, url: str) -> None:
+    """Turn a Bilibili captcha page into ``VerificationRequired``.
+
+    Bilibili serves ``验证码_哔哩哔哩`` to requests without a browser session.
+    The page is short enough that the generic extractor can mistake it for a
+    video record, so it is checked before a record is accepted.
+    """
+
+    marker = engine.looks_like_verification_page(markdown, title, url)
+    if marker:
+        raise engine.VerificationRequired(
+            f"{url} returned a Bilibili verification page ({marker}); "
+            "open it in a browser profile that has passed the check. "
+            "web-forager does not solve challenges."
+        )
+
+
 def fetch_video(
     target: str,
     config: Optional[engine.FetchConfig] = None,
@@ -512,9 +529,18 @@ def fetch_video(
             final_url = response.final_url
 
         record = parse_video_state(extract_initial_state(response.text), final_url)
+        if record:
+            _reject_verification_page(
+                str(record.get("markdown") or ""),
+                str(record.get("title") or ""),
+                final_url,
+            )
         if not record:
             metadata = engine.extract_metadata(response.text, url=final_url)
             markdown = engine.html_to_markdown(response.text, url=final_url)
+            _reject_verification_page(
+                markdown, str(metadata.get("title", "")), final_url
+            )
             record = {
                 "bvid": extract_bvid(final_url) if _BV_RE.search(final_url) else "",
                 "aid": None,
@@ -567,7 +593,12 @@ def feed(
         for card in cards[: max(0, enrich)]:
             try:
                 videos.append(fetch_video(card["url"], config, fetcher=fetcher))
-            except (engine.RobotsDenied, engine.FetchError, engine.ExtractionError) as exc:
+            except (
+                engine.RobotsDenied,
+                engine.FetchError,
+                engine.ExtractionError,
+                engine.VerificationRequired,
+            ) as exc:
                 card["error"] = f"{exc.__class__.__name__}: {exc}"
         return {
             "mode": "feed",
@@ -760,7 +791,12 @@ def search(
         for card in cards[: max(0, config.max_pages)]:
             try:
                 videos.append(fetch_video(card["url"], config, fetcher=fetcher))
-            except (engine.RobotsDenied, engine.FetchError, engine.ExtractionError) as exc:
+            except (
+                engine.RobotsDenied,
+                engine.FetchError,
+                engine.ExtractionError,
+                engine.VerificationRequired,
+            ) as exc:
                 card["error"] = f"{exc.__class__.__name__}: {exc}"
 
         return {
@@ -798,7 +834,12 @@ def related(
         for item in items[: max(0, enrich)]:
             try:
                 videos.append(fetch_video(item["url"], config, fetcher=fetcher))
-            except (engine.RobotsDenied, engine.FetchError, engine.ExtractionError) as exc:
+            except (
+                engine.RobotsDenied,
+                engine.FetchError,
+                engine.ExtractionError,
+                engine.VerificationRequired,
+            ) as exc:
                 item["error"] = f"{exc.__class__.__name__}: {exc}"
         return {
             "mode": "related",
@@ -854,7 +895,12 @@ def surf(
                 visited.add(bvid)
                 try:
                     record = fetch_video(url, config, fetcher=fetcher)
-                except (engine.RobotsDenied, engine.FetchError, engine.ExtractionError) as exc:
+                except (
+                    engine.RobotsDenied,
+                    engine.FetchError,
+                    engine.ExtractionError,
+                    engine.VerificationRequired,
+                ) as exc:
                     videos.append({"url": url, "bvid": bvid, "error": f"{exc.__class__.__name__}: {exc}"})
                     continue
                 videos.append(record)

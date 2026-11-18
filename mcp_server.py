@@ -14,6 +14,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Any, Callable, Optional
+from urllib.parse import urlsplit
 
 _PLUGIN_ROOT = Path(__file__).resolve().parent
 if str(_PLUGIN_ROOT) not in sys.path:
@@ -128,6 +129,10 @@ _TOOLS: list[dict[str, Any]] = [
                     "type": "boolean",
                     "description": "Use the on-disk response cache (default true; pass false for fresh pages).",
                 },
+                "compact": {
+                    "type": "boolean",
+                    "description": "Return only url/title/domain/relevance and a short snippet per result, with a two-field quality block. Cuts the payload by roughly two thirds; use it when only the link list matters.",
+                },
                 "fullResults": {
                     "type": "boolean",
                     "description": "Repeat every page record inside results as well as pages (1.0.1 behaviour; doubles the response).",
@@ -165,6 +170,16 @@ _TOOLS: list[dict[str, Any]] = [
                 "source": {"type": "string", "enum": ["arxiv", "crossref", "pubmed", "doi"]},
                 "query": {"type": "string"},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+                "sort": {
+                    "type": "string",
+                    "enum": ["relevance", "submittedDate", "lastUpdatedDate"],
+                    "description": "arXiv sort order; ignored by the other sources",
+                },
+                "field": {
+                    "type": "string",
+                    "enum": ["all", "ti", "au", "abs"],
+                    "description": "arXiv query field; ignored by the other sources",
+                },
             },
             "required": ["source", "query"],
         },
@@ -384,6 +399,18 @@ def _full_results(arguments: dict[str, Any]) -> bool:
     return bool(arguments.get("fullResults", False))
 
 
+def _operator_robots_policy() -> str:
+    """Target-page robots policy chosen by whoever started the server.
+
+    ``WEB_FORAGER_ROBOTS_POLICY`` is read from the process environment, not
+    from a tool argument, so a model cannot relax the boundary on its own. An
+    invalid value falls back to ``respect``.
+    """
+
+    value = os.environ.get("WEB_FORAGER_ROBOTS_POLICY", "respect").strip().lower()
+    return value if value in ("respect", "warn", "ignore") else "respect"
+
+
 def _config(arguments: dict[str, Any]) -> engine.FetchConfig:
     config = engine.FetchConfig(
         # Agent calls are context-bound: 8k chars is enough for almost every
@@ -401,11 +428,16 @@ def _config(arguments: dict[str, Any]) -> engine.FetchConfig:
         search_pages=max(1, int(arguments.get("search_pages", 1))),
         search_engine=str(arguments.get("engine", "auto")),
         follow=str(arguments.get("follow", "same-site")),
-        # MCP calls never relax the boundary: robots, the injection gate and
-        # the private-address guard are user-level CLI/env decisions, not
-        # model-controlled parameters.
+        # MCP calls never relax the boundary from a tool argument: robots, the
+        # injection gate and the private-address guard are user-level CLI/env
+        # decisions, not model-controlled parameters. The target-page robots
+        # policy may be set for the whole server process by its operator.
         respect_robots=True,
-        robots_policy="respect",
+        robots_policy=_operator_robots_policy(),
+        # The private-address guard is a boundary, not a preference: an
+        # operator who exported WEB_FORAGER_ALLOW_PRIVATE for a local CLI run
+        # must not thereby let a model reach 127.0.0.1 through this server.
+        allow_private=False,
         proxy="",
         input_gate="mark",
         verbose=False,
@@ -537,6 +569,43 @@ def _tool_research(arguments: dict[str, Any]) -> dict[str, Any]:
     return engine.build_envelope("research", payload, full_results=_full_results(arguments))
 
 
+def _compact_search_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Keep only what a caller needs to choose a link.
+
+    The full payload is ~1.9e3 tokens; a session that searches twenty times
+    pays for that twenty times over. The compact shape keeps the fields the
+    ranking already computed and drops the engine report and the long snippets.
+    """
+
+    results = payload.get("search_results") or []
+    quality = payload.get("search_quality") or {}
+    compact = dict(payload)
+    compact["search_results"] = [
+        {
+            "title": item.get("title", ""),
+            "url": item.get("url", ""),
+            "domain": item.get("domain")
+            or urlsplit(str(item.get("url") or "")).netloc,
+            "relevance": item.get("relevance"),
+            "snippet": str(item.get("snippet") or "")[:160],
+        }
+        for item in results
+    ]
+    compact["search_quality"] = {
+        "returned": quality.get("returned"),
+        "relevant": quality.get("relevant"),
+        "engines_answered": quality.get("engines_answered") or [],
+        "cache_hit": bool(quality.get("cache_hit")),
+        "parser_drift": quality.get("parser_drift") or [],
+        "risk": quality.get("risk") or {},
+        "evidence": quality.get("evidence") or {},
+        "qa_dump": quality.get("qa_dump"),
+        "official_backfill": quality.get("official_backfill"),
+    }
+    compact.pop("engine_report", None)
+    return compact
+
+
 def _tool_search(arguments: dict[str, Any]) -> dict[str, Any]:
     global _EMPTY_SEARCHES
     if not arguments.get("query"):
@@ -576,6 +645,8 @@ def _tool_search(arguments: dict[str, Any]) -> dict[str, Any]:
         payload["guidance"] = guidance
     payload["search_count"] = _SESSION_CALLS["search"]
     payload["empty_search_streak"] = _EMPTY_SEARCHES
+    if arguments.get("compact"):
+        payload = _compact_search_payload(payload)
     return engine.build_envelope("fetch", payload, full_results=_full_results(arguments))
 
 
@@ -612,6 +683,8 @@ def _tool_scholar(arguments: dict[str, Any]) -> dict[str, Any]:
         query,
         config,
         limit=int(arguments.get("limit", config.num_results)),
+        sort=str(arguments.get("sort", "relevance")),
+        field=str(arguments.get("field", "all")),
     )
     return engine.build_envelope("scholar", payload)
 
@@ -780,11 +853,13 @@ def handle_request(request: dict[str, Any]) -> Optional[dict[str, Any]]:
                 code = "unsafe_address"
             elif code == "VerificationRequired":
                 code = "verification_required"
+            elif code == "NotFoundError":
+                code = "not_found"
             error: dict[str, Any] = {"code": code, "message": str(exc)}
             if code == "verification_required":
                 error["hint"] = (
-                    "Retry in browser mode with playbook wechat-dig and a profile that "
-                    "has passed verification; web-forager does not solve challenges."
+                    "Open the page in browser mode with a profile that has already "
+                    "passed the site's check; web-forager does not solve challenges."
                 )
             text = json.dumps(
                 {

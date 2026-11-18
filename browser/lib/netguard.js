@@ -54,8 +54,24 @@ function isBlockedIpv4(ip) {
 function isBlockedIpv6(raw) {
   let ip = raw.toLowerCase().split("%")[0];
   if (ip === "::1" || ip === "::") return true;
-  const mapped = ip.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-  if (mapped) return isBlockedIpv4(mapped[1]);
+  // WHATWG URL rewrites [::ffff:127.0.0.1] to [::ffff:7f00:1], so the mapped
+  // IPv4 address must be decoded from hex as well as from dotted form.  This
+  // was a real bypass: isBlockedIp("::ffff:127.0.0.1") said blocked, while
+  // isPublicRequestUrl("http://[::ffff:127.0.0.1]/") said allowed.
+  if (ip.startsWith("::ffff:")) {
+    const tail = ip.slice("::ffff:".length);
+    const dotted = tail.match(/^(\d+\.\d+\.\d+\.\d+)$/);
+    if (dotted) return isBlockedIpv4(dotted[1]);
+    const hex = tail.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+    if (hex) {
+      const hi = parseInt(hex[1], 16);
+      const lo = parseInt(hex[2], 16);
+      return isBlockedIpv4(`${hi >>> 8}.${hi & 255}.${lo >>> 8}.${lo & 255}`);
+    }
+  }
+  // IPv4-compatible (deprecated) and any other ::/96 form are not routable
+  // public addresses; refuse the whole compressed :: block.
+  if (ip.startsWith("::")) return true;
   if (/^fe[89ab][0-9a-f]:/.test(ip)) return true; // fe80::/10
   if (/^f[cd][0-9a-f]{2}:/.test(ip)) return true; // fc00::/7
   if (/^ff[0-9a-f]{2}:/.test(ip)) return true; // ff00::/8

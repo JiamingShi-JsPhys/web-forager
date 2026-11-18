@@ -28,10 +28,12 @@ from __future__ import annotations
 
 import base64
 import dataclasses
+import hashlib
 import html as html_lib
 import ipaddress
 import json
 import os
+import random
 import re
 import socket
 import sys
@@ -51,7 +53,7 @@ from bs4.element import NavigableString, Tag
 
 from . import untrusted
 
-__version__ = "1.3.1"
+__version__ = "1.3.2"
 
 DEFAULT_USER_AGENT = (
     f"WebForager/{__version__} (Information Gathering; "
@@ -82,6 +84,24 @@ class RobotsDenied(WebForagerError):
 
 class FetchError(WebForagerError):
     """Network failure, non-success status, or unsupported content type."""
+
+    def __init__(self, message: str, status: Optional[int] = None) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+class SearchParseDrift(WebForagerError):
+    """An engine answered with a real page the parser could no longer read.
+
+    Distinguished from an empty answer: the response was large and did not say
+    "no results", yet every selector missed. That is almost always markup that
+    changed, and it should be reported as a parser problem, not silently as a
+    thin topic.
+    """
+
+
+class NotFoundError(WebForagerError):
+    """The remote service answered that the requested identifier is unknown."""
 
 
 class ExtractionError(WebForagerError):
@@ -217,6 +237,17 @@ class FetchConfig:
     allow_private: bool = field(default_factory=_allow_private_from_env)
     # off | mark | strict: what to do with instruction-shaped page text.
     input_gate: str = "mark"
+
+    @property
+    def effective_robots_policy(self) -> str:
+        """The policy name recorded in ``compliance`` and in warning text.
+
+        ``respect_robots=False`` is the older spelling of ``ignore``; both are
+        reported under the same name so a record never mislabels the policy it
+        actually used.
+        """
+
+        return self.robots_policy if self.respect_robots else "ignore"
 
     def validate(self) -> None:
         if self.render not in ("auto", "never", "always"):
@@ -728,7 +759,14 @@ class RobotsCache:
             text = _decode_robots_bytes(raw, response)
             return parse_robots(text, self.config.user_agent, source=robots_url)
         if status in (401, 403):
-            return RobotsPolicy.denying_all(source=robots_url, note=f"HTTP {status} on robots.txt")
+            return RobotsPolicy.denying_all(
+                source=robots_url,
+                note=(
+                    f"HTTP {status} on robots.txt; the site may be blocking this "
+                    "client or require a different user agent. RFC 9309 denies "
+                    "conservatively."
+                ),
+            )
         if 500 <= status < 600:
             return RobotsPolicy.denying_all(
                 source=robots_url,
@@ -774,19 +812,71 @@ def _decode_robots_bytes(raw: bytes, response: Any) -> str:
 
 
 class RateLimiter:
-    """Per-origin politeness delay, capped so robots.txt cannot stall a run."""
+    """Per-origin politeness delay, capped so robots.txt cannot stall a run.
+
+    The interval is a promise to the site, not a performance setting: it never
+    drops below ``delay`` or a ``Crawl-delay`` that site declared. Two
+    adjustments spend the promise better without weakening it — a small upward
+    jitter so requests do not arrive on an exact one-second cadence, and a
+    per-origin penalty that doubles after a 429 or 503 and halves on success,
+    so one throttled origin does not throttle every later request to it.
+    """
 
     MAX_EXTRA_DELAY = 30.0
+    MAX_PENALTY = 8.0
 
     def __init__(self, delay: float) -> None:
         self.delay = max(0.0, float(delay))
         self._last: dict[str, float] = {}
+        self._crawl: dict[str, float] = {}
+        self._penalty: dict[str, float] = {}
         self._lock = threading.Lock()
 
+    def remember(self, url: str, crawl_delay: float) -> None:
+        """Keep a Crawl-delay the site declared for every later request."""
+
+        if crawl_delay and crawl_delay > 0:
+            with self._lock:
+                self._crawl[origin_of(url)] = min(
+                    float(crawl_delay), self.MAX_EXTRA_DELAY
+                )
+
+    def penalize(self, url: str) -> None:
+        """The site asked us to slow down: back off the whole origin."""
+
+        origin = origin_of(url)
+        with self._lock:
+            self._penalty[origin] = min(
+                self._penalty.get(origin, 1.0) * 2.0, self.MAX_PENALTY
+            )
+
+    def relax(self, url: str) -> None:
+        """A request succeeded; halve the extra back-off, then forget it."""
+
+        origin = origin_of(url)
+        with self._lock:
+            penalty = self._penalty.get(origin, 1.0) / 2.0
+            if penalty <= 1.0:
+                self._penalty.pop(origin, None)
+            else:
+                self._penalty[origin] = penalty
+
+    def delay_for(self, url: str, extra_delay: float = 0.0) -> float:
+        """The interval before this origin's next request, without jitter."""
+
+        origin = origin_of(url)
+        with self._lock:
+            crawl = self._crawl.get(origin, 0.0)
+            penalty = self._penalty.get(origin, 1.0)
+        base = max(self.delay, min(extra_delay, self.MAX_EXTRA_DELAY), crawl)
+        return base * penalty
+
     def wait(self, url: str, extra_delay: float = 0.0) -> None:
-        target = max(self.delay, min(extra_delay, self.MAX_EXTRA_DELAY))
+        target = self.delay_for(url, extra_delay)
         if target <= 0:
             return
+        # Jitter only ever adds time, so the promised floor still holds.
+        target *= random.uniform(1.0, 1.15)
         origin = origin_of(url)
         with self._lock:
             now = time.monotonic()
@@ -855,6 +945,67 @@ def _private_path(path: Path, mode: int) -> None:
         path.chmod(mode)
     except OSError:
         pass
+
+
+# A search result list ages fast: five minutes is enough to make an agent's
+# repeated query free, short enough that a news query is not served yesterday's
+# answer. Page bodies keep their own, longer cache.
+SEARCH_CACHE_TTL = 300
+
+
+def _search_cache_path(
+    config: FetchConfig,
+    query: str,
+    engine: str,
+    limit: int,
+    pages: int,
+    query_robots: str,
+) -> Path:
+    key = hashlib.sha256(
+        json.dumps(
+            [query, engine, limit, pages, query_robots], ensure_ascii=False
+        ).encode("utf-8")
+    ).hexdigest()[:24]
+    return _cache_root(config) / "search" / f"{key}.json"
+
+
+def _read_search_cache(path: Path) -> Optional[dict[str, Any]]:
+    try:
+        if not path.is_file():
+            return None
+        if time.time() - path.stat().st_mtime > SEARCH_CACHE_TTL:
+            return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _write_search_cache(
+    path: Path,
+    results: list[dict[str, Any]],
+    report: Optional[list[dict[str, Any]]],
+    quality: Optional[dict[str, Any]],
+) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _private_path(path.parent, 0o700)
+        temp = path.with_suffix(".tmp")
+        temp.write_text(
+            json.dumps(
+                {
+                    "results": results,
+                    "report": list(report or []),
+                    "quality": dict(quality or {}),
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        _private_path(temp, 0o600)
+        temp.replace(path)
+    except OSError as exc:  # a cache failure must never fail the search
+        log(f"search cache write skipped ({exc})", None)
 
 
 def _cache_key(url: str) -> str:
@@ -949,6 +1100,10 @@ class HttpFetcher:
         if not self.config.respect_robots or effective == "ignore":
             return RobotsPolicy.allowing_all(note="robots checking disabled by policy")
         policy = self.robots.policy_for(url)
+        if policy.crawl_delay:
+            # The site asked for this interval; every later request to the same
+            # origin should honour it, not only the one that read robots.txt.
+            self.limiter.remember(url, policy.crawl_delay)
         if not policy.allowed(url):
             if effective == "warn":
                 return policy
@@ -1019,15 +1174,20 @@ class HttpFetcher:
             if status in (429, 500, 502, 503, 504) and attempt < self.config.retries:
                 retry_after = _retry_after_seconds(response.headers.get("Retry-After"))
                 response.close()
+                if status in (429, 503):
+                    # "Too many requests" is about this origin, not this one
+                    # URL: the next page from the same site starts slower too.
+                    self.limiter.penalize(url)
                 time.sleep(retry_after if retry_after is not None else min(1.0 * (2**attempt), 8.0))
                 continue
 
             if status >= 400:
                 response.close()
-                raise FetchError(f"HTTP {status} for {url}")
+                raise FetchError(f"HTTP {status} for {url}", status=status)
 
             result = self._read_response(response, url)
             result.robots_overridden = overridden["value"]
+            self.limiter.relax(url)
             if use_cache:
                 self._write_cache(url, result)
             return result
@@ -1059,6 +1219,15 @@ class HttpFetcher:
         encoding = str(meta.get("encoding") or "utf-8")
         text = body.decode(encoding, errors="replace")
         log(f"cache hit: {redact_url_for_log(url)}", self.config)
+        # The override flag describes how this body was originally read. It only
+        # applies while the same policy is in force; a body cached under `warn`
+        # must not come back claiming an override under `ignore`, and older
+        # entries without a stored policy report none.
+        cached_policy = meta.get("robots_policy")
+        robots_overridden = (
+            bool(meta.get("robots_overridden", False))
+            and cached_policy == self.config.effective_robots_policy
+        )
         return HttpResponse(
             url=url,
             final_url=str(meta.get("final_url") or url),
@@ -1069,7 +1238,7 @@ class HttpFetcher:
             encoding=encoding,
             content_type=content_type,
             from_cache=True,
-            robots_overridden=bool(meta.get("robots_overridden", False)),
+            robots_overridden=robots_overridden,
         )
 
     def _write_cache(self, url: str, response: HttpResponse) -> None:
@@ -1102,6 +1271,7 @@ class HttpFetcher:
                         "content_type": response.content_type,
                         "encoding": response.encoding,
                         "robots_overridden": bool(response.robots_overridden),
+                        "robots_policy": self.config.effective_robots_policy,
                     },
                     ensure_ascii=False,
                 ),
@@ -1525,6 +1695,19 @@ def prefers_chinese_engines(query: str) -> bool:
     return cjk >= len(re.findall(r"[A-Za-z]", text))
 
 
+def has_latin_technical_token(query: str) -> bool:
+    """True when a mostly-CJK query still names something written in Latin.
+
+    ``Python 3.12 asyncio.TaskGroup 默认异常处理`` is Chinese, but the answer
+    lives in English documentation. Bing is excluded from the first CJK pass
+    because it splits Chinese phrases, not because it cannot answer the Latin
+    half of the question; when the Chinese engines come back thin, it is worth
+    one fallback query.
+    """
+
+    return bool(re.search(r"[A-Za-z][A-Za-z0-9_.\-]{2,}", str(query or "")))
+
+
 def search(
     query: str,
     config: FetchConfig,
@@ -1577,7 +1760,9 @@ def search(
         # name. Bing stays available through --engine bing.
         if prefers_chinese_engines(query):
             engines = ["360", "sogou", "weixin"]
-            fallback_engines = []
+            fallback_engines = (
+                ["bing"] if has_latin_technical_token(query) else []
+            )
         else:
             engines = ["360", "bing"]
             # A Latin query answered with a handful of results (or none) is
@@ -1590,6 +1775,19 @@ def search(
         engines = [engine]
 
     own_fetcher = fetcher is None
+    cache_path: Optional[Path] = None
+    if config.cache and config.cache_ttl > 0:
+        cache_path = _search_cache_path(
+            config, query, engine, limit, config.search_pages, config.query_robots
+        )
+        cached = _read_search_cache(cache_path)
+        if cached is not None:
+            if report is not None:
+                report.extend(cached.get("report") or [])
+            if quality is not None:
+                quality.update(cached.get("quality") or {})
+                quality["cache_hit"] = True
+            return list(cached.get("results") or [])
     fetcher = fetcher or HttpFetcher(config)
     parallel = own_fetcher and config.parallel_engines
     groups: list[tuple[str, list[dict[str, str]]]] = []
@@ -1678,20 +1876,47 @@ def search(
     # returned engine order untouched, which is how an Excel INDIRECT tutorial
     # could sit third for an "indirect prompt injection" query.
     merged = merge_search_results(groups, query, limit=limit)
+    # When the engines answered with nothing authoritative, the official page
+    # for a known topic is usually absent from their index even though it
+    # exists.  Add the small curated set (Python asyncio, Go, Rust, MDN, Wi-Fi,
+    # China policy) as clearly-labelled rows and rank them with everything else.
+    needs_official = _lacks_authority(merged[:limit]) or bool(
+        re.search(r"(?<!\d)10\.\d{4,9}/", query)
+    )
+    if engine in ("auto", "all") and needs_official:
+        official = _official_candidates(query)
+        if official:
+            merged = merge_search_results(
+                groups + [("official-entry", official)], query, limit=limit
+            )
     final = diversify_results(
-        dedupe_results(merged, limit=max(limit * 3, limit)), limit=limit
+        dedupe_syndicated(dedupe_results(merged, limit=max(limit * 3, limit))),
+        limit=limit,
     )
     annotate_results(final, query)
     before_filter = len(final)
     # When enough real answers exist, do not pad the list with results that
     # matched one word or the wrong language.  With only one or two relevant
     # hits the unrelated rows stay at the bottom and a warning names them.
-    relevant = [item for item in final if item.get("relevance")]
+    # Keep three kinds of row: textually relevant, deliberately targeted at
+    # the topic, and authoritative.  A docs page in English will not match
+    # Chinese bigrams, but dropping it in favour of a content farm is exactly
+    # the failure this filter used to cause.
+    relevant = [
+        item
+        for item in final
+        if item.get("relevance")
+        or item.get("targeted")
+        or item.get("authority_tier")
+        in ("primary", "official", "academic", "reference")
+    ]
     if len(relevant) >= min(3, limit):
         final = relevant
     if quality is not None:
         quality["returned_before_filter"] = before_filter
         quality["dropped_off_topic"] = max(0, before_filter - len(final))
+    if cache_path is not None:
+        _write_search_cache(cache_path, final, report, quality)
     return final
 
 
@@ -1704,6 +1929,8 @@ def _engine_failure_status(exc: BaseException) -> str:
     """
 
     text = f"{type(exc).__name__}: {exc}".lower()
+    if isinstance(exc, SearchParseDrift):
+        return "parser_drift"
     if any(word in text for word in ("timeout", "timed out", "time out")):
         return "timeout"
     if "robots" in text:
@@ -1748,6 +1975,32 @@ def is_360_blocked(html: str) -> bool:
     return "验证" in html and len(html) < 12000
 
 
+_NO_RESULTS_MARKERS = (
+    "没有找到",
+    "未找到相关",
+    "没有相关",
+    "暂无相关",
+    "找不到相关",
+    "no results",
+    "did not match any",
+)
+
+
+def looks_like_parse_drift(html: str) -> bool:
+    """A large page with no result structure and no "nothing found" note.
+
+    Engines change markup without warning. When that happens the parser used to
+    return an empty list, which is indistinguishable from "this topic has no
+    results". A page this large that does not say so is a parser problem.
+    """
+
+    text = str(html or "")
+    if len(text) < 20000:
+        return False
+    lowered = text.lower()
+    return not any(marker in lowered for marker in _NO_RESULTS_MARKERS)
+
+
 def _search_one(
     name: str,
     query: str,
@@ -1777,6 +2030,11 @@ def _search_one(
             if is_360_blocked(response.text):
                 raise FetchError("360 returned a verification page; wait and retry later")
             found = parse_360_html(response.text, limit=limit)
+            if not found and page == 1 and looks_like_parse_drift(response.text):
+                raise SearchParseDrift(
+                    f"360 returned {len(response.text) // 1024} KB without a result "
+                    "list; its markup may have changed"
+                )
         elif name == "sogou":
             response = fetcher.fetch(
                 _SOGOU.format(query=quoted, page=page), **query_fetch
@@ -1786,6 +2044,11 @@ def _search_one(
             parsed = parse_sogou_html(
                 response.text, base="https://www.sogou.com/", limit=limit
             )
+            if not parsed and page == 1 and looks_like_parse_drift(response.text):
+                raise SearchParseDrift(
+                    f"Sogou returned {len(response.text) // 1024} KB without a result "
+                    "list; its markup may have changed"
+                )
             found = resolve_sogou_results(parsed, fetcher, limit=limit)
         elif name == "weixin":
             response = fetcher.fetch(
@@ -1796,6 +2059,11 @@ def _search_one(
             parsed = parse_weixin_html(
                 response.text, base="https://weixin.sogou.com/", limit=limit
             )
+            if not parsed and page == 1 and looks_like_parse_drift(response.text):
+                raise SearchParseDrift(
+                    f"weixin.sogou.com returned {len(response.text) // 1024} KB without "
+                    "a result list; its markup may have changed"
+                )
             found = resolve_sogou_results(parsed, fetcher, limit=limit)
         elif name == "duckduckgo":
             response = fetcher.fetch(_DDG_HTML.format(query=quoted), **query_fetch)
@@ -1817,6 +2085,11 @@ def _search_one(
                     **query_fetch,
                 )
                 found = parse_bing_html(response.text, limit=limit)
+                if not found and page == 1 and looks_like_parse_drift(response.text):
+                    raise SearchParseDrift(
+                        f"Bing returned {len(response.text) // 1024} KB without a "
+                        "result list; its markup may have changed"
+                    )
 
         if not found:
             break
@@ -2042,6 +2315,18 @@ _AUTHORITY_TIERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "ietf.org",
             "unicode.org",
             "docs.github.com",
+            "docs.aws.amazon.com",
+            "cloud.google.com",
+            "developer.android.com",
+            "docs.rs",
+            "pkg.go.dev",
+            "docs.kernel.org",
+            "man7.org",
+            "docs.oracle.com",
+            "dev.mysql.com",
+            "redis.io",
+            "docs.mongodb.com",
+            "support.google.com",
         ),
     ),
     (
@@ -2076,6 +2361,12 @@ _AUTHORITY_TIERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "acm.org",
             "plos.org",
             "biorxiv.org",
+            "europepmc.org",
+            "ssrn.com",
+            "jstor.org",
+            "cell.com",
+            "thelancet.com",
+            "bmj.com",
         ),
     ),
     (
@@ -2097,6 +2388,11 @@ _AUTHORITY_TIERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "jiemian.com",
             "chinanews.com.cn",
             "finance.sina.com.cn",
+            "xinhuanet.com",
+            "people.com.cn",
+            "apnews.com",
+            "theguardian.com",
+            "nikkei.com",
         ),
     ),
     (
@@ -2121,6 +2417,9 @@ _AUTHORITY_TIERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "medium.com",
             "dev.to",
             "quora.com",
+            "segmentfault.com",
+            "v2ex.com",
+            "juejin.cn",
         ),
     ),
     (
@@ -2135,6 +2434,13 @@ _AUTHORITY_TIERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "book118.com",
             "jianshu.com",
             "toutiao.com",
+            "sohu.com",
+            "baijiahao.baidu.com",
+            "zhidao.baidu.com",
+            "pipixue.com",
+            "shuashuati.com",
+            "huatu.com",
+            "zupu.cn",
         ),
     ),
 )
@@ -2243,6 +2549,175 @@ def authority_for(host: str, intent: str = "general") -> dict[str, Any]:
     }
 
 
+_QA_DUMP_TITLE_RE = re.compile(
+    r"题库|试题|单选题|多选题|判断题|选择题|参考答案|正确答案|答案是什么|考试题|"
+    r"刷刷题|作业帮|模拟题|练习册"
+)
+_QA_DUMP_PATH_RE = re.compile(r"/(?:tiku|ti|timu|question|ask)(?:/|$)", re.I)
+
+
+def looks_like_qa_dump(result: dict[str, Any]) -> bool:
+    """True for a quiz / answer-key page rather than an article.
+
+    These pages rank well because they repeat the question verbatim, then list
+    four options without an explanation.  They are a poor answer for an agent:
+    the snippet usually contains every query word and none of the evidence.
+    The check is deliberately narrow — a news or documentation page that says
+    "试题" in passing is unaffected.
+    """
+
+    title = str(result.get("title") or "")
+    if _QA_DUMP_TITLE_RE.search(title):
+        return True
+    try:
+        parts = urllib.parse.urlsplit(str(result.get("url") or ""))
+    except ValueError:
+        return False
+    host = (parts.hostname or "").lower()
+    path = parts.path or ""
+    if _QA_DUMP_PATH_RE.search(path) and (
+        host.endswith((".edu.cn", "huatu.com", "pipixue.com", "shuashuati.com"))
+        or "tiku" in host
+        or "quiz" in host
+    ):
+        return True
+    return False
+
+
+def _query_year(query: str) -> str:
+    match = re.search(r"\b(20\d{2})\b|(20\d{2})年", str(query or ""))
+    if not match:
+        return ""
+    return match.group(1) or match.group(2) or ""
+
+
+# Words a title uses when it addresses the *intent* of a question, not just
+# its topic.  A comparison query is better served by a page that compares, and
+# a how-to by a page that gives steps; this is a small, explicit vocabulary
+# rather than a learned model.
+_INTENT_CUES: dict[str, tuple[str, ...]] = {
+    "comparison": (
+        "对比", "区别", "比较", "怎么选", "如何选", "选型", "差异", "优劣",
+        "vs", "versus", "comparison", "compare", "tradeoff",
+    ),
+    "howto": (
+        "教程", "指南", "如何", "步骤", "方法", "怎么", "guide", "tutorial",
+        "how to", "walkthrough", "example",
+    ),
+    "factual": (
+        "营收", "收入", "数据", "统计", "财报", "官方", "公告", "定义",
+        "是什么", "多少", "annual report", "official",
+    ),
+    "news": ("最新", "发布", "宣布", "本周", "今日", "今年", "本月"),
+    "technical": (
+        "文档", "documentation", "reference", "api", "示例", "example",
+        "specification", "规范",
+    ),
+    "policy": ("政策", "条例", "法规", "条款", "官方", "act", "regulation"),
+    "research": ("论文", "paper", "survey", "研究", "review", "arxiv"),
+}
+
+
+def _intent_cue(title: str, intent: str) -> float:
+    cues = _INTENT_CUES.get(intent) or ()
+    lowered = (title or "").lower()
+    if not lowered or not cues:
+        return 0.0
+    return 0.04 if any(cue in lowered for cue in cues) else 0.0
+
+
+def _keyword_in_text(keyword: str, text: str) -> bool:
+    needle = re.sub(r"[\s_-]+", "", str(keyword or "").lower())
+    haystack = re.sub(r"[\s_-]+", "", str(text or "").lower())
+    return len(needle) >= 2 and needle in haystack
+
+
+def _official_candidates(query: str) -> list[dict[str, Any]]:
+    """Curated official rows for a topic whose docs the engines will not index.
+
+    The free engines answer a technical Chinese question with content farms
+    because that is what they have crawled.  The official page exists; it is
+    just not in the top eight.  This reuses the same small entry-point map the
+    ``research`` action uses, adds at most three rows, and marks every one as
+    ``source: "official-entry"`` so a caller can tell it from an organic hit.
+    No extra request is made here; the rows are links, not fetched pages.
+
+    A match on the group keyword is not enough: the page's own path must carry
+    the term too (``asyncio`` for the asyncio page), otherwise a query that
+    merely names the language would get an unrelated chapter of its docs.
+    """
+
+    try:
+        from . import research as _research
+    except Exception:  # pragma: no cover - research is part of the package
+        return []
+    lowered = (query or "").lower()
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def add(url: str) -> None:
+        if not url or url in seen or len(rows) >= 3:
+            return
+        seen.add(url)
+        try:
+            parts = urllib.parse.urlsplit(url)
+        except ValueError:
+            return
+        label = (parts.netloc + parts.path).strip("/") or parts.netloc
+        rows.append(
+            {
+                "title": label,
+                "url": url,
+                "snippet": "",
+                "source": "official-entry",
+                "targeted": True,
+            }
+        )
+
+    for keywords, urls in getattr(_research, "_OFFICIAL_ENTRY_POINTS", ()):
+        matched = [keyword for keyword in keywords if _research._mentions(lowered, keyword)]
+        if not matched:
+            continue
+        for url in urls:
+            parts = urllib.parse.urlsplit(url)
+            path = parts.path.strip("/")
+            # A chapter page must name the topic in its path.  A homepage may
+            # name it in the host (``artificialintelligenceact.eu``), and the
+            # host may carry a term from the group that the query paraphrased.
+            if path:
+                keep = any(_keyword_in_text(keyword, path) for keyword in matched)
+            else:
+                keep = any(_keyword_in_text(keyword, parts.netloc) for keyword in keywords)
+            if keep:
+                add(url)
+    site = _research._official_site(query)
+    contact_paths = getattr(_research, "_OFFICIAL_CONTACT_PATHS", {})
+    if site and (site in contact_paths or re.search(r"官网|官方网站|official site|about us", lowered)):
+        add(f"https://{site}/")
+        for path in contact_paths.get(site, ()):
+            add(f"https://{site}{path}")
+    # A DOI names one document; resolving it is the official route and costs
+    # no search-engine query.
+    doi = re.search(r"(?<!\d)(10\.\d{4,9}/[^\s\"'<>]+)", query or "")
+    if doi:
+        add("https://doi.org/" + doi.group(1).rstrip(".,;"))
+    return rows
+
+
+def _lacks_authority(results: list[dict[str, Any]]) -> bool:
+    """True when no authoritative result actually addresses the query.
+
+    An official homepage that surfaced for a Chinese question is not an
+    answer; the chapter that is, if it exists, is worth adding.
+    """
+
+    return not any(
+        str(item.get("authority_tier") or "") in ("primary", "official", "academic")
+        and (item.get("relevance") or item.get("targeted"))
+        for item in results
+    )
+
+
 def result_match(
     result: dict[str, str], query: str, tokens: Optional[list[str]] = None
 ) -> dict[str, Any]:
@@ -2313,6 +2788,22 @@ def result_match(
     }
 
 
+def is_ephemeral_url(url: str) -> bool:
+    """True for a time-signed WeChat search link.
+
+    Sogou's WeChat index returns ``mp.weixin.qq.com/s?src=11&timestamp=...``
+    links whose signature expires.  They are usable as a one-time lead, not as
+    a citation target.
+    """
+
+    parsed = urllib.parse.urlsplit(url or "")
+    host = (parsed.hostname or "").lower()
+    if host != "mp.weixin.qq.com":
+        return False
+    query = urllib.parse.parse_qs(parsed.query)
+    return bool(query.get("signature") or query.get("timestamp"))
+
+
 def annotate_results(results: list[dict[str, Any]], query: str) -> list[dict[str, Any]]:
     """Attach relevance and authority fields in place and return the same list."""
 
@@ -2330,6 +2821,7 @@ def annotate_results(results: list[dict[str, Any]], query: str) -> list[dict[str
             authority_tier=authority["tier"],
             authority_score=authority["score"],
             intent=intent["intent"],
+            ephemeral=is_ephemeral_url(item.get("url", "")),
         )
     return results
 
@@ -2402,24 +2894,34 @@ _QUERY_STOPWORDS = {
 def diversify_results(
     results: list[dict[str, str]], limit: int, per_host: int = 2
 ) -> list[dict[str, str]]:
-    """Keep at most ``per_host`` results per host, then fill from the overflow.
+    """Keep at most ``per_host`` results per host, one host per slot first.
 
     A single host that dominates the list (WeChat, one content farm) no longer
-    crowds out every other source; if too few hosts answered, the overflow is
-    appended so the caller still receives ``limit`` results.
+    crowds out every other source.  Within the first ``limit`` slots, a host
+    gets one entry before any host gets a second, but only when that entry can
+    carry its weight: a result that is neither relevant nor targeted waits in
+    the second phase, so an off-topic host cannot displace a relevant repeat.
+    When too few hosts answered, the deferred and overflow rows fill the list.
     """
 
-    chosen: list[dict[str, str]] = []
+    primary: list[dict[str, str]] = []
+    deferred: list[dict[str, str]] = []
     overflow: list[dict[str, str]] = []
     counts: dict[str, int] = {}
     for item in results:
         host = (urllib.parse.urlsplit(item.get("url", "")).netloc or "").lower()
-        if counts.get(host, 0) < per_host:
-            counts[host] = counts.get(host, 0) + 1
-            chosen.append(item)
-        else:
+        count = counts.get(host, 0)
+        if count >= per_host:
             overflow.append(item)
-    return (chosen + overflow)[:limit]
+            continue
+        counts[host] = count + 1
+        if count == 0 and (item.get("relevance") or item.get("targeted")):
+            primary.append(item)
+        else:
+            deferred.append(item)
+    if len(primary) >= limit:
+        return primary[:limit]
+    return (primary + deferred + overflow)[:limit]
 
 
 _SEARCH_ENGINE_HOSTS = {
@@ -2444,6 +2946,25 @@ _SEARCH_ENGINE_HOSTS = {
     "yandex.com",
     "yandex.ru",
 }
+
+
+_AD_QUERY_MARKERS = ("utm_query=", "utm_source=360", "src=360zrk", "360zrkp")
+
+
+def looks_like_ad(url: str) -> bool:
+    """True for a paid placement carrying the engine's own tracking string.
+
+    A 360 ad result arrives as ``?utm_source=360zrkp&utm_query=<the query>``
+    and sits near the top because it was bought, not because it answers.  The
+    marker is specific to the engine's ad pipeline; ordinary UTM tags on a
+    real article are left alone.
+    """
+
+    try:
+        query = urllib.parse.urlsplit(str(url or "")).query.lower()
+    except ValueError:
+        return False
+    return any(marker in query for marker in _AD_QUERY_MARKERS)
 
 
 def _is_search_engine_page(url: str) -> bool:
@@ -2507,6 +3028,20 @@ def merge_search_results(
             freshness = _freshness_bonus(
                 f"{candidate.get('title', '')} {candidate.get('snippet', '')}"
             )
+            qa_dump = looks_like_qa_dump(candidate)
+            ad = looks_like_ad(candidate.get("url", ""))
+            year = _query_year(query)
+            year_match = bool(
+                year
+                and year
+                in f"{candidate.get('title', '')} {candidate.get('snippet', '')}"
+            )
+            # The engine's own ordering carries a signal that RRF alone throws
+            # away: 360 puts the page it considers best first, and that is more
+            # often right than wrong.  The prior is small enough that a real
+            # coverage difference still wins.
+            engine_rank = round(max(0.0, 0.045 - 0.0045 * min(rank, 10)), 3)
+            cue = _intent_cue(str(candidate.get("title") or ""), intent["intent"])
             components = {
                 "coverage": round(details["coverage"], 3),
                 "title": round(details["title_coverage"], 3),
@@ -2514,9 +3049,22 @@ def merge_search_results(
                 "title_exact": bool(details["title_exact"]),
                 "relevant": bool(details["relevant"]),
                 "rrf": round(rrf, 4),
+                "engine_rank": engine_rank,
+                "intent_cue": round(cue, 3),
+                "year_match": bool(year_match),
                 "authority": round(float(authority["score"]), 3),
                 "freshness": round(freshness, 3),
-                "language_penalty": 0.0 if details["language_match"] else -0.35,
+                "targeted": bool(candidate.get("targeted")),
+                "qa_dump": qa_dump,
+                "ad": ad,
+                # A curated official page is in English on purpose; the
+                # cross-language penalty exists to demote an unrelated page,
+                # not the one this query was matched to.
+                "language_penalty": (
+                    0.0
+                    if details["language_match"] or candidate.get("targeted")
+                    else -0.35
+                ),
             }
             candidate.update(
                 coverage=details["coverage"],
@@ -2527,6 +3075,7 @@ def merge_search_results(
                 authority_tier=authority["tier"],
                 authority_score=authority["score"],
                 intent=intent["intent"],
+                reliable=not qa_dump,
                 rank_components=components,
                 rank_reason=[
                     name
@@ -2534,11 +3083,17 @@ def merge_search_results(
                         "coverage",
                         "title",
                         "rrf",
+                        "engine_rank",
                         "exact",
                         "title_exact",
                         "relevant",
+                        "intent_cue",
+                        "year_match",
                         "authority",
                         "freshness",
+                        "targeted",
+                        "qa_dump",
+                        "ad",
                         "language_penalty",
                     )
                     if components[name]
@@ -2551,12 +3106,19 @@ def merge_search_results(
                 + (0.05 if components["title_exact"] else 0.0)
                 + (0.2 if components["relevant"] else 0.0)
                 + min(0.12, components["rrf"] * 3.0)
+                + components["engine_rank"]
+                + components["intent_cue"]
+                + (0.04 if components["year_match"] else 0.0)
                 + components["authority"]
                 + components["freshness"]
+                + (0.28 if components["targeted"] else 0.0)
+                + (-0.14 if components["qa_dump"] else 0.0)
+                + (-0.25 if components["ad"] else 0.0)
                 + components["language_penalty"]
             )
-            if not components["relevant"]:
+            if not components["relevant"] and not components["targeted"]:
                 score -= 0.15
+            candidate["rank_score"] = round(score, 4)
             scored.append((score, group_index, rank, candidate))
     scored.sort(key=lambda entry: (-entry[0], entry[1], entry[2]))
     return [entry[3] for entry in scored[: max(limit * 3, limit)]]
@@ -2815,6 +3377,54 @@ def dedupe_results(results: Iterable[dict[str, str]], limit: int = 8) -> list[di
         if len(unique) >= limit:
             break
     return unique
+
+
+_TITLE_SITE_SUFFIX = re.compile(
+    r"\s*[-_|—–]\s*(?:CSDN博客|CSDN|腾讯云开发者社区|博客园|知乎专栏|知乎|简书|"
+    r"今日头条|新浪网|新浪科技|新浪财经|网易订阅|网易|搜狐|百度文库|微信公众号|掘金)"
+    r"\s*$",
+    re.I,
+)
+
+
+def _title_key(title: str) -> str:
+    text = _TITLE_SITE_SUFFIX.sub("", str(title or ""))
+    return re.sub(r"[^0-9A-Za-z㐀-鿿]+", "", text).lower()
+
+
+def dedupe_syndicated(
+    results: list[dict[str, Any]], limit: Optional[int] = None
+) -> list[dict[str, Any]]:
+    """Drop copies of the same article reposted by several portals.
+
+    A repost is not another source: it is the same text under a weaker host.
+    The first copy in ranked order is kept, so the better-scored (and usually
+    better-authored) version survives.  Near-identical titles are compared by
+    CJK/Latin bigram Jaccard; short titles are never merged.
+    """
+
+    kept: list[dict[str, Any]] = []
+    keys: list[tuple[str, set[str]]] = []
+    for item in results:
+        key = _title_key(str(item.get("title") or ""))
+        duplicate = False
+        if len(key) >= 10:
+            grams = {key[index : index + 2] for index in range(len(key) - 1)}
+            for other, other_grams in keys:
+                if key == other:
+                    duplicate = True
+                    break
+                union = grams | other_grams
+                if union and len(grams & other_grams) / len(union) >= 0.85:
+                    duplicate = True
+                    break
+            if not duplicate:
+                keys.append((key, grams))
+        if not duplicate:
+            kept.append(item)
+            if limit is not None and len(kept) >= limit:
+                break
+    return kept
 
 
 def _clean_result_text(value: Optional[str]) -> str:
@@ -4022,6 +4632,14 @@ _WECHAT_VERIFICATION_PATTERNS = (
     "请在微信客户端打开链接",
     "访问过于频繁",
 )
+_BILIBILI_VERIFICATION_PATTERNS = (
+    "验证码_哔哩哔哩",
+    "请输入验证码",
+    "滑动验证",
+    "安全验证",
+    "访问异常",
+    "请求过于频繁",
+)
 _VERIFICATION_MAX_CHARS = 1500
 
 
@@ -4043,6 +4661,10 @@ def looks_like_verification_page(markdown: str, title: str, url: str) -> str:
     if host == "mp.weixin.qq.com" or host.endswith(".weixin.qq.com"):
         for marker in _WECHAT_VERIFICATION_PATTERNS:
             if marker.lower() in lowered:
+                return marker
+    if host == "bilibili.com" or host.endswith(".bilibili.com") or host == "b23.tv":
+        for marker in _BILIBILI_VERIFICATION_PATTERNS:
+            if marker in text:
                 return marker
     for marker in _VERIFICATION_PATTERNS:
         if marker in lowered:
@@ -4074,7 +4696,8 @@ def fetch_page(
         if robots_overridden:
             warnings.append(
                 "robots.txt disallows this path; read because robots policy is "
-                "'warn'. This override is recorded as compliance.robots_overridden."
+                f"'{config.effective_robots_policy}'. This override is recorded as "
+                "compliance.robots_overridden."
             )
         extra_delay = policy.crawl_delay if policy and policy.crawl_delay else 0.0
 
@@ -4091,8 +4714,9 @@ def fetch_page(
             if getattr(response, "robots_overridden", False) and not robots_overridden:
                 robots_overridden = True
                 warnings.append(
-                    "a redirect target was read because robots policy is 'warn'; "
-                    "this override is recorded as compliance.robots_overridden."
+                    "a redirect target was read because robots policy is "
+                    f"'{config.effective_robots_policy}'; this override is "
+                    "recorded as compliance.robots_overridden."
                 )
             html = response.text
             if config.render == "auto" and looks_dynamic(html):
@@ -4299,9 +4923,7 @@ def fetch_page(
             "injection_findings": injection_findings,
             "compliance": {
                 "robots_checked": robots_checked,
-                "robots_policy": (
-                    config.robots_policy if config.respect_robots else "ignore"
-                ),
+                "robots_policy": config.effective_robots_policy,
                 "robots_overridden": robots_overridden,
             },
         }
@@ -4354,6 +4976,29 @@ def search_warnings(
                 "them as findings."
             )
     if results:
+        ephemeral = [item for item in results if item.get("ephemeral")]
+        if ephemeral:
+            warnings.append(
+                f"{len(ephemeral)} of {len(results)} results are time-signed WeChat "
+                "search links; their signature expires. Use the title to find a "
+                "stable copy and do not cite the URL as a long-term source."
+            )
+        compact_query = re.sub(r"[\s\"'“”‘’]+", "", query)
+        if len(compact_query) >= 4 and _CJK_CHAR_RE.search(compact_query):
+            compact_results = [
+                re.sub(
+                    r"[\s\"'“”‘’]+",
+                    "",
+                    f"{item.get('title', '')} {item.get('snippet', '')}",
+                )
+                for item in results
+            ]
+            if not any(compact_query in text for text in compact_results):
+                warnings.append(
+                    "none of the results contain the full query phrase; the engine "
+                    "may have split it into shorter terms. Treat this list as weak "
+                    "and verify each title before using it as a finding."
+                )
         probe_findings: list[dict[str, Any]] = []
         for item in results:
             findings = untrusted.scan_findings(
@@ -4376,6 +5021,122 @@ def search_warnings(
     return warnings
 
 
+# A question-shaped query names something specific; a broad topic request
+# does not.  The evidence check below only speaks when the query asserts or
+# asks about a concrete item, because "this week's policy news" has no single
+# sentence that would confirm it.
+_QUESTION_MARKERS = re.compile(
+    r"吗|呢|是不是|是否|谁|什么|多少|几|哪一|哪个|哪里|哪儿|何时|多久"
+)
+_CLAIM_MARKERS = re.compile(
+    r"公告|文件|发布|宣布|推出|获奖|得主|营收|收入|总部|发明|创始|成立于|位于|"
+    r"生平|简介|代表作|作者|导演|版本|标准"
+)
+_YEAR_MARKER = re.compile(r"20\d{2}\s*年?")
+
+# Generic question scaffolding that carries no evidence by itself.  It is
+# removed before the anchors are computed so "总部在哪个城市" leaves
+# "总部" (still generic, but harmless) rather than a sentence no page repeats.
+_GENERIC_RUN_FRAGMENTS = (
+    "在哪个城市", "在哪个国家", "在哪个", "哪一年", "哪一天", "什么时候",
+    "有多少", "是多少", "是什么", "是什么意思", "是谁", "有哪些", "为什么",
+    "怎么样", "怎么办", "怎么选", "如何", "是否", "到底", "哪个", "哪里",
+    "多少", "什么", "吗", "呢", "的", "是",
+)
+
+
+def _specific_runs(query: str) -> list[str]:
+    runs: list[str] = []
+    for raw in re.findall(r"[㐀-鿿]+", str(query or "")):
+        cleaned = raw
+        for fragment in _GENERIC_RUN_FRAGMENTS:
+            cleaned = cleaned.replace(fragment, "")
+        if len(cleaned) >= 4:
+            runs.append(cleaned)
+    return runs
+
+
+_RECENCY_MARKERS = re.compile(r"最近|本周|这周|近期|今日|今天|本月|今年|最新")
+_COMPARISON_MARKERS = re.compile(r"不同|区别|差异|对比|比较|怎么选|如何选")
+
+
+def _claim_like(query: str) -> bool:
+    text = str(query or "")
+    # A news round-up, a comparison and a how-to are all questions that no
+    # single sentence in one result can confirm; checking them would only add
+    # noise.  A dated claim or a question about one named item is different.
+    if _RECENCY_MARKERS.search(text) or _COMPARISON_MARKERS.search(text):
+        return False
+    if _QUESTION_MARKERS.search(text):
+        if re.search(r"怎么|如何|咋|怎样", text) and not re.search(
+            r"谁|什么|多少|哪", text
+        ):
+            return False
+        return True
+    if _YEAR_MARKER.search(text) and _CLAIM_MARKERS.search(text):
+        return True
+    # A bare name followed by 生平/简介/代表作 asks for one person's record.
+    return bool(re.search(r"生平|简介|代表作", text)) and " " in text
+
+
+def _run_support(run: str, texts: list[str]) -> float:
+    grams = {run[index : index + 2] for index in range(len(run) - 1)}
+    if not grams:
+        return 0.0
+    best = 0.0
+    for text in texts:
+        hit = sum(1 for gram in grams if gram in text)
+        best = max(best, hit / len(grams))
+    return best
+
+
+def search_evidence(query: str, results: list[dict[str, Any]]) -> dict[str, Any]:
+    """Does any result actually state the item the question asks about?
+
+    This is not a fact checker.  It checks one narrow, decidable thing: the
+    query names a specific subject (``霍普金斯三世``, ``诺贝尔数学奖``), and no
+    result contains that subject.  A list in that state is background, not an
+    answer, and saying so is cheaper than letting an agent repeat it as fact.
+    Quiz and answer-key pages are excluded: they repeat the question and its
+    four options, which is exactly the shape that looks like support without
+    being it.
+    """
+
+    runs = _specific_runs(query)
+    if not runs or not _claim_like(query):
+        return {"checked": False, "status": "not_checked", "anchors": []}
+    # Result parsers insert spaces between Chinese words to keep titles
+    # readable; a bigram that crosses one would look absent.  Compare on the
+    # compacted text instead.
+    texts = [
+        re.sub(r"\s+", "", f"{item.get('title', '')}{item.get('snippet', '')}")
+        for item in results
+        if not looks_like_qa_dump(item)
+    ]
+    if not texts:
+        return {
+            "checked": True,
+            "status": "unsupported",
+            "anchors": [{"run": run, "support": 0.0} for run in runs[:3]],
+        }
+    anchors = [
+        {"run": run, "support": round(_run_support(run, texts), 2)}
+        for run in runs[:3]
+    ]
+    # The longest run is the one that carries the claim (``年全面禁止咖啡公告``
+    # rather than the organisation name alone).  Taking the maximum would let
+    # a common entity name answer for a claim the results never make.
+    longest = max(anchors, key=lambda anchor: len(anchor["run"]))
+    best = longest["support"]
+    if best >= 0.75:
+        status = "supported"
+    elif best >= 0.55:
+        status = "uncertain"
+    else:
+        status = "unsupported"
+    return {"checked": True, "status": status, "anchors": anchors}
+
+
 def search_quality(
     query: str,
     results: list[dict[str, Any]],
@@ -4396,6 +5157,7 @@ def search_quality(
     language_mismatch = sum(
         1 for item in results if item.get("language_match") is False
     )
+    ephemeral = sum(1 for item in results if item.get("ephemeral"))
     tiers: dict[str, int] = {}
     for item in results:
         tier = str(item.get("authority_tier") or "unknown")
@@ -4420,6 +5182,28 @@ def search_quality(
     engine_states: dict[str, int] = {}
     for state in engine_status.values():
         engine_states[state] = engine_states.get(state, 0) + 1
+    parser_drift = [
+        str(entry.get("engine", ""))
+        for entry in (engine_report or [])
+        if entry.get("status") == "parser_drift"
+    ]
+    authoritative = sum(
+        tiers.get(tier, 0) for tier in ("primary", "official", "academic")
+    )
+    weixin = sum(
+        1 for item in results if "mp.weixin.qq.com" in str(item.get("url") or "")
+    )
+    qa_dump = sum(1 for item in results if looks_like_qa_dump(item))
+    backfill = sum(1 for item in results if item.get("targeted"))
+    evidence = search_evidence(query, results)
+    # A list can be full of relevant-looking pages and still carry no source
+    # that confirms a fact. Saying so is cheaper than pretending the ranking
+    # answered the question.
+    risk = {
+        "no_authoritative_source": bool(results) and authoritative == 0,
+        "wechat_heavy": bool(results) and weixin >= max(2, (len(results) + 1) // 2),
+        "single_engine": bool(results) and len(answered) <= 1,
+    }
     return {
         "query": query,
         "engine": engine,
@@ -4429,15 +5213,18 @@ def search_quality(
         "relevant": relevant,
         "off_topic": off_topic,
         "language_mismatch": language_mismatch,
+        "ephemeral": ephemeral,
+        "qa_dump": qa_dump,
+        "official_backfill": backfill,
         "authority_tiers": tiers,
-        "high_authority": sum(
-            tiers.get(tier, 0)
-            for tier in ("primary", "official", "academic")
-        ),
+        "high_authority": authoritative,
+        "risk": risk,
+        "evidence": evidence,
         "engines_answered": answered,
         "engine_errors": errors,
         "engine_status": engine_status,
         "engine_states": engine_states,
+        "parser_drift": parser_drift,
     }
 
 
@@ -4706,6 +5493,77 @@ def probe_engines(
     return report
 
 
+def _skipped_entry(result: dict[str, Any], code: str, reason: str) -> dict[str, Any]:
+    """A skip keeps what the search result already said about the page.
+
+    A robots-denied WeChat link used to arrive as a bare URL, so the caller lost
+    a title and snippet it could still cite as a search-level glimpse. The entry
+    carries ``partial: true`` because no page body was read.
+    """
+
+    entry: dict[str, Any] = {"url": result["url"], "code": code, "reason": reason}
+    title = str(result.get("title") or "").strip()
+    snippet = str(result.get("snippet") or "").strip()
+    if title:
+        entry["title"] = title
+    if snippet:
+        entry["snippet"] = snippet[:240]
+    entry["partial"] = True
+    return entry
+
+
+def _fetch_batch_window(
+    results: list[dict[str, Any]],
+    config: FetchConfig,
+    fetcher: HttpFetcher,
+    render_slots: int,
+) -> list[tuple[Optional[dict[str, Any]], Optional[BaseException]]]:
+    """Fetch one window of ranked results, one worker per distinct origin.
+
+    Distinct origins run at the same time; two results on the same origin stay
+    in one worker and are fetched one after another, so the per-origin promise
+    ("one request at a time, at least a second apart") still holds. The
+    returned list follows the input order, not completion order, because the
+    caller counts readable pages by rank. Exceptions come back as values so
+    that loop keeps classifying them exactly as it did when fetching serially.
+    """
+
+    groups: dict[str, list[tuple[int, dict[str, Any]]]] = {}
+    for index, result in enumerate(results):
+        groups.setdefault(origin_of(result["url"]), []).append((index, result))
+
+    def run_origin(items: list[tuple[int, dict[str, Any]]]) -> list[tuple]:
+        local = fetcher.clone()
+        outcome: list[tuple[int, Optional[dict[str, Any]], Optional[BaseException]]] = []
+        try:
+            for index, result in items:
+                try:
+                    page = fetch_page(
+                        result["url"],
+                        config,
+                        fetcher=local,
+                        allow_render_fallback=(
+                            config.render == "auto" and index < render_slots
+                        ),
+                    )
+                    outcome.append((index, page, None))
+                except BaseException as exc:  # classified by the caller
+                    outcome.append((index, None, exc))
+        finally:
+            local.close()
+        return outcome
+
+    if len(groups) == 1:
+        merged = run_origin(next(iter(groups.values())))
+    else:
+        with ThreadPoolExecutor(max_workers=min(6, len(groups))) as pool:
+            merged = [
+                item for chunk in pool.map(run_origin, groups.values()) for item in chunk
+            ]
+    by_index = {index: (page, exc) for index, page, exc in merged}
+    return [by_index[index] for index in range(len(results))]
+
+
 def fetch_by_query(
     query: str,
     config: Optional[FetchConfig] = None,
@@ -4738,50 +5596,55 @@ def fetch_by_query(
         # robots-denied or unreadable results, with a cap so one query cannot
         # turn into an unbounded site walk.
         max_attempts = min(len(results), max(config.max_pages * 3, config.max_pages + 5))
-        for result in results:
-            if len(pages) >= config.max_pages or attempts >= max_attempts:
-                break
-            attempts += 1
-            try:
-                page = fetch_page(
-                    result["url"],
-                    config,
-                    fetcher=fetcher,
-                    allow_render_fallback=(
-                        config.render == "auto" and render_fallbacks < 2
-                    ),
-                )
-                if page.get("render_fallback"):
-                    render_fallbacks += 1
-                pages.append(page)
-            except RobotsDenied as exc:
-                skipped.append(
-                    {"url": result["url"], "code": "robots_denied", "reason": str(exc)}
-                )
-            except VerificationRequired as exc:
-                skipped.append(
-                    {
-                        "url": result["url"],
-                        "code": "verification_required",
-                        "reason": str(exc),
-                    }
-                )
-            except FetchError as exc:
-                skipped.append(
-                    {"url": result["url"], "code": "fetch_error", "reason": str(exc)}
-                )
-            except ExtractionError as exc:
-                skipped.append(
-                    {"url": result["url"], "code": "extraction_error", "reason": str(exc)}
-                )
-            except RenderUnavailable as exc:
-                skipped.append(
-                    {"url": result["url"], "code": "render_unavailable", "reason": str(exc)}
-                )
-            except Exception as exc:  # pragma: no cover - defensive
-                skipped.append(
-                    {"url": result["url"], "code": "unexpected", "reason": str(exc)}
-                )
+        position = 0
+        while (
+            position < len(results)
+            and len(pages) < config.max_pages
+            and attempts < max_attempts
+        ):
+            # A window is exactly the number of readable pages still wanted, so
+            # an all-readable query issues the same requests a serial loop did.
+            # Only failures make the next window exist at all.
+            slots = min(
+                config.max_pages - len(pages),
+                max_attempts - attempts,
+                len(results) - position,
+            )
+            window = results[position : position + slots]
+            position += slots
+            attempts += slots
+            render_slots = max(0, 2 - render_fallbacks)
+            outcomes = _fetch_batch_window(window, config, fetcher, render_slots)
+            for result, (page, failure) in zip(window, outcomes):
+                if failure is None and page is not None:
+                    if page.get("render_fallback"):
+                        render_fallbacks += 1
+                    pages.append(page)
+                    continue
+                if isinstance(failure, RobotsDenied):
+                    skipped.append(
+                        _skipped_entry(result, "robots_denied", str(failure))
+                    )
+                elif isinstance(failure, VerificationRequired):
+                    skipped.append(
+                        _skipped_entry(result, "verification_required", str(failure))
+                    )
+                elif isinstance(failure, FetchError):
+                    skipped.append(
+                        _skipped_entry(result, "fetch_error", str(failure))
+                    )
+                elif isinstance(failure, ExtractionError):
+                    skipped.append(
+                        _skipped_entry(result, "extraction_error", str(failure))
+                    )
+                elif isinstance(failure, RenderUnavailable):
+                    skipped.append(
+                        _skipped_entry(result, "render_unavailable", str(failure))
+                    )
+                else:
+                    skipped.append(
+                        _skipped_entry(result, "unexpected", str(failure))
+                    )
         quality = search_quality(query, results, engine, engine_report)
         quality.update(quality_data)
         payload: dict[str, Any] = {
@@ -4796,6 +5659,37 @@ def fetch_by_query(
             "pages_attempted": attempts,
         }
         warnings = search_warnings(query, results, engine=engine)
+        if quality.get("parser_drift"):
+            warnings.append(
+                "engine(s) answered but the parser found no results: "
+                + ", ".join(quality["parser_drift"])
+                + ". Their markup may have changed; run `doctor --probe` and update "
+                "the offline fixtures before trusting an empty list."
+            )
+        if (quality.get("risk") or {}).get("no_authoritative_source") and quality.get(
+            "intent"
+        ) in ("factual", "news", "policy", "comparison"):
+            # For a technical how-to, a community answer is a normal answer; for
+            # a fact, a date or a policy, a list with no primary source is a
+            # claim without a witness. Only the second case earns prose.
+            warnings.append(
+                "no official, primary or academic source appears in this list; a fact "
+                "taken from it is unverified — say so instead of presenting it as "
+                "confirmed."
+            )
+        if (quality.get("evidence") or {}).get("status") == "unsupported":
+            anchors = [
+                str(anchor.get("run") or "")
+                for anchor in (quality.get("evidence") or {}).get("anchors") or []
+                if anchor.get("run")
+            ]
+            named = f" ({', '.join(anchors[:2])})" if anchors else ""
+            warnings.append(
+                "no result in this list states the specific item the question asks "
+                f"about{named}; the pages are about the topic, not the answer. Do not "
+                "present anything from them as confirmation — answer that the "
+                "evidence is missing, or check a primary source."
+            )
         if skipped:
             counts: dict[str, int] = {}
             for item in skipped:
@@ -4805,6 +5699,12 @@ def fetch_by_query(
                 f"{len(skipped)} result(s) skipped while filling {config.max_pages} "
                 f"readable page(s): {summary}"
             )
+            detail = "; ".join(
+                f"{item['code']}: {item['url']}" for item in skipped[:5]
+            )
+            if len(skipped) > 5:
+                detail += f"; and {len(skipped) - 5} more"
+            warnings.append(f"skipped pages: {detail}")
             if counts.get("robots_denied"):
                 warnings.append(
                     "robots.txt denied the skipped paths. Use --robots-policy warn only "
@@ -4843,6 +5743,20 @@ def fetch_by_query(
                     "--action find --site <host> for a site's own search, or "
                     "--action feed --url <site> for its RSS/Atom feed."
                 )
+        thin = [
+            page
+            for page in pages
+            if 0 < len(str(page.get("markdown") or "").strip()) < 200
+        ]
+        if thin:
+            urls = ", ".join(
+                str(page.get("url") or page.get("final_url") or "") for page in thin[:5]
+            )
+            warnings.append(
+                f"{len(thin)} page(s) returned less than 200 characters of text; "
+                "the page may be a JavaScript viewer, a paywall, or a navigation "
+                f"shell rather than the article: {urls}"
+            )
         if warnings:
             payload["warnings"] = warnings
         return payload
@@ -5010,6 +5924,17 @@ def doctor_report(config: Optional[FetchConfig] = None) -> dict[str, Any]:
         "version": __version__,
         "missing_required": missing_required,
         "checks": checks,
+        "search_engines": {
+            "supported": sorted(SEARCH_ENGINES),
+            "notes": {
+                "baidu": (
+                    "not supported: every public result endpoint answers with the "
+                    "百度安全验证 page, so a parser would never see a result list. "
+                    "Baidu-hosted pages remain reachable through the 360 index and "
+                    "as ordinary target pages."
+                )
+            },
+        },
         "proxy": {
             "configured": bool(proxy_value),
             "source": proxy_source,

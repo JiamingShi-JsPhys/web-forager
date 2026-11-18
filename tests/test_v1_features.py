@@ -56,6 +56,40 @@ class FakeFetcher:
         )
 
 
+class ScholarFetcher:
+    """Minimal fetcher for exercising scholar URL construction and errors."""
+
+    def __init__(
+        self, text: str = "", error: engine.WebForagerError | None = None
+    ) -> None:
+        self.config = engine.FetchConfig()
+        self.text = text
+        self.error = error
+        self.calls: list[str] = []
+
+    def fetch(
+        self,
+        url: str,
+        *,
+        check_robots: bool = True,
+        use_cache: bool = True,
+        robots_policy: str | None = None,
+    ) -> engine.HttpResponse:
+        self.calls.append(url)
+        if self.error is not None:
+            raise self.error
+        return engine.HttpResponse(
+            url=url,
+            final_url=url,
+            status=200,
+            headers={},
+            content=self.text.encode("utf-8"),
+            text=self.text,
+            encoding="utf-8",
+            content_type="application/json",
+        )
+
+
 # ---------------------------------------------------------------------------
 # Scholarly APIs
 # ---------------------------------------------------------------------------
@@ -69,6 +103,7 @@ def test_parse_arxiv_records() -> None:
     assert first["authors"] == ["Ada Lovelace", "Alan Turing"]
     assert first["doi"] == "10.1234/arxiv.2501.01234"
     assert first["pdf_url"].endswith("/pdf/2501.01234v1")
+    assert first["published"] == "2025-01-02"
     assert first["keywords"] == ["cs.IR", "cs.AI"]
     assert "rate limiting" in first["abstract"]
 
@@ -112,6 +147,139 @@ def test_scholar_markdown_rendering() -> None:
     markdown = scholar.to_markdown(payload)
     assert "# crossref: crawling" in markdown
     assert "**DOI:** 10.1234/jewr.2025.0042" in markdown
+
+
+def test_crossref_date_parts_never_render_none() -> None:
+    assert scholar._date_parts({"date-parts": [[None]]}) == ""
+    assert scholar._date_parts({"date-parts": [[2025, None, 14]]}) == "2025"
+    assert scholar._date_parts({"date-parts": [[2025, 3, None]]}) == "2025-03"
+    assert scholar._date_parts({"date-parts": [[2025, 3, 14]]}) == "2025-03-14"
+
+
+def test_crossref_components_are_filtered_but_a_component_doi_is_kept() -> None:
+    payload = {
+        "message": {
+            "items": [
+                {"DOI": "10.1/fig-2", "type": "component", "title": ["Figure 2"]},
+                {
+                    "DOI": "10.1/paper",
+                    "type": "journal-article",
+                    "title": ["Paper"],
+                    "issued": {"date-parts": [[2025]]},
+                },
+            ]
+        }
+    }
+    records = scholar.parse_crossref(payload)
+    assert [record["id"] for record in records] == ["10.1/paper"]
+
+    single = {
+        "message": {
+            "DOI": "10.1/fig-2",
+            "type": "component",
+            "title": ["Figure 2"],
+        }
+    }
+    records = scholar.parse_crossref(single)
+    assert [record["id"] for record in records] == ["10.1/fig-2"]
+
+
+def test_pubmed_dates_are_normalised() -> None:
+    search_payload = {"esearchresult": {"idlist": ["1", "2", "3"]}}
+    summary = {
+        "result": {
+            "1": {"pubdate": "2024 Jan", "title": "A", "authors": []},
+            "2": {"pubdate": "2024 Jan 15", "title": "B", "authors": []},
+            "3": {"pubdate": "2024", "title": "C", "authors": []},
+        }
+    }
+    records = scholar.parse_pubmed(search_payload, summary)
+    assert [record["published"] for record in records] == [
+        "2024-01",
+        "2024-01-15",
+        "2024",
+    ]
+
+
+def test_arxiv_field_quotes_a_phrase_exactly_once() -> None:
+    atom = '<feed xmlns="http://www.w3.org/2005/Atom"></feed>'
+    fetcher = ScholarFetcher(atom)
+    scholar.search("arxiv", "deep residual learning", fetcher=fetcher, field="ti", limit=3)
+    assert "search_query=ti%3A%22deep+residual+learning%22" in fetcher.calls[0]
+
+    fetcher = ScholarFetcher(atom)
+    scholar.search("arxiv", '"deep residual learning"', fetcher=fetcher, field="ti", limit=3)
+    assert fetcher.calls[0].count("%22") == 2
+
+
+def test_doi_404_is_reported_as_not_found() -> None:
+    error = engine.FetchError(
+        "HTTP 404 for https://api.crossref.org/works/10.9999/does-not-exist",
+        status=404,
+    )
+    fetcher = ScholarFetcher(error=error)
+    with pytest.raises(engine.NotFoundError) as excinfo:
+        scholar.search("doi", "10.9999/does-not-exist", fetcher=fetcher)
+    assert "not registered with Crossref" in str(excinfo.value)
+
+
+def test_scholar_mcp_exposes_field_and_sort() -> None:
+    tools = {tool["name"]: tool for tool in mcp_server._TOOLS}
+    properties = tools["web_scholar"]["inputSchema"]["properties"]
+    assert "field" in properties
+    assert "sort" in properties
+
+
+def test_scholar_cli_exposes_field() -> None:
+    import run
+
+    args = run.build_parser().parse_args(
+        ["--action", "scholar", "--query", "deep residual learning", "--field", "ti"]
+    )
+    assert args.field == "ti"
+
+
+def test_wechat_time_signed_links_are_marked_ephemeral() -> None:
+    results = [
+        {
+            "title": "新闻联播速览",
+            "url": "https://mp.weixin.qq.com/s?src=11&timestamp=1&signature=abc",
+            "snippet": "海南自贸区",
+        }
+    ]
+    warnings = engine.search_warnings("八八战略 20周年", results)
+    assert results[0]["ephemeral"] is True
+    assert any("time-signed WeChat" in warning for warning in warnings)
+    assert any("full query phrase" in warning for warning in warnings)
+    assert engine.search_quality("八八战略 20周年", results)["ephemeral"] == 1
+
+
+def test_batch_flags_pages_with_almost_no_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        engine,
+        "search",
+        lambda *args, **kwargs: [
+            {"url": "https://docs.example/a", "title": "A", "snippet": ""}
+        ],
+    )
+    monkeypatch.setattr(
+        engine,
+        "fetch_page",
+        lambda *args, **kwargs: {
+            "url": "https://docs.example/a",
+            "final_url": "https://docs.example/a",
+            "markdown": "短",
+        },
+    )
+    payload = engine.fetch_by_query(
+        "测试", engine.FetchConfig(num_results=1, max_pages=1, delay=0.0)
+    )
+    assert any(
+        "less than 200 characters" in warning
+        for warning in payload.get("warnings", [])
+    )
+
+
 
 
 # ---------------------------------------------------------------------------

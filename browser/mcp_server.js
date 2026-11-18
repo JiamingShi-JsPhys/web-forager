@@ -102,7 +102,14 @@ function runPlaybook(args) {
     // CLI directly.
     argv.push("--strict-robots");
 
-    const child = spawn(process.execPath, argv, { cwd: __dirname, stdio: ["ignore", "pipe", "pipe"] });
+    // Clear the private-address opt-in inherited from the operator's shell:
+    // MCP runs never reach loopback or the LAN, even when the same person set
+    // WEB_FORAGER_ALLOW_PRIVATE for a CLI run.
+    const child = spawn(process.execPath, argv, {
+      cwd: __dirname,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, WEB_FORAGER_ALLOW_PRIVATE: "" },
+    });
     let stdout = "";
     let stderr = "";
     const timer = setTimeout(() => {

@@ -1,6 +1,6 @@
 ---
 name: web-forager
-version: 1.3.1
+version: 1.3.2
 description: >
   Polite, robots-aware web information gathering with two modes. HTTP mode
   searches 360/Bing/Sogou/WeChat, reads HTML/PDF/DOCX/XLSX/EPUB/CSV and RSS/Atom,
@@ -16,7 +16,7 @@ description: >
   arXiv/Crossref/PubMed/DOI. Ships a CLI, an OpenCLI-style --agent envelope and
   two stdio MCP servers.
 metadata:
-  version: 1.3.1
+  version: 1.3.2
   author: Jiaming Shi
   license: MIT
   entry_point: python run.py
@@ -282,7 +282,7 @@ Browser sessions live in `~/.web-forager/browser/sessions/` (override with
 | `--follow same-site\|all\|none` | `same-site` | surf link policy |
 | `--session NAME` | off | resumable surf session (`~/.web-forager/sessions/`) |
 | `--direct-search` | off | explicit override for `search.bilibili.com` only |
-| `--robots-policy respect\|warn\|ignore` | `respect` | `respect` refuses a disallowed path; `warn` reads it and marks the override; `ignore` skips the check |
+| `--robots-policy respect\|warn\|ignore` | `respect` | `respect` refuses a disallowed path; `warn` reads it and marks the override; `ignore` skips the check. For an MCP server process the operator may set `WEB_FORAGER_ROBOTS_POLICY`; the model cannot |
 | `--query-robots respect\|warn\|ignore` | `warn` | policy for search-engine and scholarly query endpoints (`WEB_FORAGER_QUERY_ROBOTS`); Bing, 360, Sogou and arXiv disallow their query paths, so `warn` reads them and records the override, `respect` refuses; MCP never accepts this from the model |
 | `--ignore-robots` | off | **dangerous**; same as `--robots-policy ignore`, only for authorised resources |
 
@@ -293,9 +293,11 @@ Browser sessions live in `~/.web-forager/browser/sessions/` (override with
 - `401/403/5xx` or an unreachable robots.txt → conservative deny.
 - Every request carries an explicit information-gathering User-Agent; override it with
   `--user-agent` so you are contactable.
-- Per-origin rate limiting remains in force; engines on different hosts may run
-  at the same time, but pages, surf, sitemap and scholarly calls are not fanned
-  out.
+- Per-origin rate limiting remains in force: one request at a time per origin,
+  at least one second apart (jitter only adds time, and a `429` lengthens that
+  origin's back-off). Distinct origins may be read concurrently, including the
+  pages of one `fetch --query`; `surf`, sitemap and scholarly calls are not
+  fanned out.
 - Max 5 redirects, 8 MB response cap, http/https only.
 - Exit code `3` means robots.txt denied the request. Respect it: do not silently
   re-fetch with a tool that ignores robots. Use `--robots-policy warn` only when
@@ -334,7 +336,10 @@ registers them as `web-forager` and `web-forager-browser`. HTTP tools:
 
 MCP calls cannot relax the safety boundary: there is no tool parameter for
 `respect_robots`, `robots_policy`, `input_gate`, a proxy, a browser write
-switch or a bridge command. The local file `clean` action is CLI-only and is
+switch or a bridge command. The operator who starts the server may choose the
+target-page policy once with `WEB_FORAGER_ROBOTS_POLICY=warn|ignore` (default
+`respect`); the model cannot set or change it, and every override is recorded
+in `compliance.robots_overridden`. The local file `clean` action is CLI-only and is
 not an MCP tool. One switch keeps a search cheap: `max_pages: 0` returns the
 result list with no page bodies (fetch one with `web_fetch` and a small
 `max_chars`). A search whose results do not pass the relevance

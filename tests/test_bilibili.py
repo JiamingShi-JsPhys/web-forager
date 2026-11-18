@@ -104,6 +104,33 @@ def test_fetch_video_from_local_site(site: str) -> None:
     assert record["final_url"].endswith("/video/BV1xx411c7mD/index.html")
 
 
+def test_fetch_video_rejects_the_bilibili_captcha_page() -> None:
+    html = (
+        "<html><head><title>验证码_哔哩哔哩</title></head>"
+        "<body><p>请完成验证</p></body></html>"
+    )
+
+    class _CaptchaFetcher:
+        def fetch(self, url: str, **kwargs: object) -> engine.HttpResponse:
+            return engine.HttpResponse(
+                url=url,
+                final_url=url,
+                status=200,
+                headers={},
+                content=html.encode("utf-8"),
+                text=html,
+                encoding="utf-8",
+                content_type="text/html",
+            )
+
+    with pytest.raises(engine.VerificationRequired):
+        bilibili.fetch_video(
+            "https://www.bilibili.com/video/BV1xx411c7mD/",
+            engine.FetchConfig(delay=0.0),
+            fetcher=_CaptchaFetcher(),  # type: ignore[arg-type]
+        )
+
+
 def test_feed_from_local_page(site: str, monkeypatch: pytest.MonkeyPatch) -> None:
     config = engine.FetchConfig(delay=0.0, timeout=10.0, render="never")
     enriched: list[str] = []

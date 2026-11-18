@@ -1,4 +1,4 @@
-# web-forager — agent operating rules (v1.3.1)
+# web-forager — agent operating rules (v1.3.2)
 
 web-forager is a clean-room, robots-aware public-web intelligence layer. It
 searches, fetches, extracts and browses the open web to collect public information; it
@@ -86,15 +86,19 @@ Add `--agent` to any CLI action for a machine-readable
 - **robots.txt is checked according to `--robots-policy`** (`respect` by
   default). `warn` and `ignore` are only for resources you are explicitly
   authorised to access; `warn` records the override in the page's `compliance`
-  block, `ignore` records that robots was not consulted.
+  block, `ignore` records that robots was not consulted. An MCP server's
+  operator may set `WEB_FORAGER_ROBOTS_POLICY=warn|ignore` for that process;
+  a model cannot, and the default remains `respect`.
 - **Query endpoints use `--query-robots`** (or `WEB_FORAGER_QUERY_ROBOTS`),
   default `warn`. Search engines and scholarly APIs are not target pages, but
   their query paths may still be disallowed; `warn` reads them and records the
   override in the engine report, `respect` refuses. MCP never accepts this
   switch from the model.
-- **Engines on different hosts may run at the same time**; each origin remains
-  one request at a time, one second apart. Page fetching, surf, sitemap and
-  scholarly calls are not fanned out.
+- **Engines on different hosts may run at the same time**, and so may the pages
+  of one `fetch --query` batch: distinct origins are read concurrently while
+  each origin still gets one request at a time, at least a second apart (jitter
+  only adds time, and a 429 lengthens that origin's back-off). `surf`, sitemap
+  and scholarly calls are not fanned out.
 - **Rendering is bounded.** `--render auto` renders once when the server
   returns a script shell, and `fetch --query` allows at most two such renders.
   A rendered page adds seconds; do not raise the budget for a bulk run.

@@ -19,7 +19,7 @@ from . import engine
 SCHOLAR_SOURCES = ("arxiv", "crossref", "pubmed", "doi")
 
 _ARXIV_API = (
-    "https://export.arxiv.org/api/query?search_query={field}:{query}"
+    "https://export.arxiv.org/api/query?search_query={search_query}"
     "&start={start}&max_results={limit}&sortBy={sort}&sortOrder=descending"
 )
 _CROSSREF_API = (
@@ -62,12 +62,131 @@ def _clean(value: Any) -> str:
 
 
 def _date_parts(value: Any) -> str:
+    """Return a Crossref ``date-parts`` value as ``YYYY[-MM[-DD]]``.
+
+    Crossref sometimes sends ``[[null]]`` for a record with no date, and may
+    send partial arrays.  A missing or non-numeric component ends the chain:
+    a month cannot be trusted when the year is absent, and a day cannot be
+    trusted when the month is absent.
+    """
+
     if not isinstance(value, dict):
         return ""
-    parts = (value.get("date-parts") or [[]])[0]
-    if not parts:
+    parts = value.get("date-parts")
+    if not isinstance(parts, list) or not parts:
         return ""
-    return "-".join(f"{int(part):02d}" if index else str(part) for index, part in enumerate(parts))
+    first = parts[0]
+    if not isinstance(first, list) or not first:
+        return ""
+
+    numbers: list[int] = []
+    for part in first[:3]:
+        try:
+            number = int(part)
+        except (TypeError, ValueError):
+            break
+        numbers.append(number)
+    if not numbers or numbers[0] <= 0:
+        return ""
+
+    text = f"{numbers[0]:04d}"
+    if len(numbers) > 1 and 1 <= numbers[1] <= 12:
+        text += f"-{numbers[1]:02d}"
+        if len(numbers) > 2 and 1 <= numbers[2] <= 31:
+            text += f"-{numbers[2]:02d}"
+    return text
+
+
+_MONTHS = {
+    "jan": 1,
+    "january": 1,
+    "feb": 2,
+    "february": 2,
+    "mar": 3,
+    "march": 3,
+    "apr": 4,
+    "april": 4,
+    "may": 5,
+    "jun": 6,
+    "june": 6,
+    "jul": 7,
+    "july": 7,
+    "aug": 8,
+    "august": 8,
+    "sep": 9,
+    "sept": 9,
+    "september": 9,
+    "oct": 10,
+    "october": 10,
+    "nov": 11,
+    "november": 11,
+    "dec": 12,
+    "december": 12,
+}
+
+
+def _iso_date(value: Any) -> str:
+    """Normalise an ISO-like date to ``YYYY[-MM[-DD]]``."""
+
+    match = re.match(r"^(\d{4})-(\d{1,2})(?:-(\d{1,2}))?", str(value or "").strip())
+    if not match:
+        return ""
+    year = int(match.group(1))
+    month = int(match.group(2))
+    if not 1 <= month <= 12:
+        return f"{year:04d}"
+    if match.group(3) is None:
+        return f"{year:04d}-{month:02d}"
+    day = int(match.group(3))
+    if not 1 <= day <= 31:
+        return f"{year:04d}-{month:02d}"
+    return f"{year:04d}-{month:02d}-{day:02d}"
+
+
+def _pubmed_date(item: dict[str, Any]) -> str:
+    """Normalise a PubMed esummary record's ``pubdate``.
+
+    ``pubdate`` carries the precision the record actually has: ``2024``,
+    ``2024 Jan`` or ``2024 Jan 15``.  ``sortpubdate`` is only a fallback and
+    its month/day are often placeholders, so the fallback keeps the year only.
+    """
+
+    raw = str(item.get("pubdate") or "").strip()
+    match = re.match(r"^(\d{4})(?:\s+([A-Za-z]{3,9}))?(?:\s+(\d{1,2}))?", raw)
+    if match:
+        year = int(match.group(1))
+        month = _MONTHS.get((match.group(2) or "").lower())
+        if month is None:
+            return f"{year:04d}"
+        if match.group(3) is None:
+            return f"{year:04d}-{month:02d}"
+        day = int(match.group(3))
+        if 1 <= day <= 31:
+            return f"{year:04d}-{month:02d}-{day:02d}"
+        return f"{year:04d}-{month:02d}"
+
+    fallback = re.match(r"^(\d{4})/", str(item.get("sortpubdate") or "").strip())
+    return f"{int(fallback.group(1)):04d}" if fallback else ""
+
+
+def _arxiv_search_query(query: str, field: str) -> str:
+    """Build an arXiv ``search_query`` value.
+
+    ``all:`` keeps the caller's terms as terms; the field-specific forms quote
+    the query so ``ti:Deep Residual Learning`` does not become four independent
+    terms.  A caller that already quoted the phrase (the research action does)
+    gets exactly one pair of quotes rather than two.
+    """
+
+    text = re.sub(r"\s+", " ", query.strip()).strip()
+    if field == "all":
+        return f"all:{text}"
+    if len(text) >= 2 and text.startswith('"') and text.endswith('"'):
+        text = text[1:-1]
+    text = re.sub(r"\s+", " ", text.replace('"', " ")).strip()
+    if not text:
+        raise ValueError("query must contain a search term")
+    return f'{field}:"{text}"'
 
 
 def parse_arxiv(xml_text: str, limit: int = 10) -> list[dict[str, Any]]:
@@ -103,8 +222,8 @@ def parse_arxiv(xml_text: str, limit: int = 10) -> list[dict[str, Any]]:
                 "id": identifier.rsplit("/", 1)[-1],
                 "title": _text(entry, f"{_ATOM}title"),
                 "authors": authors,
-                "published": _text(entry, f"{_ATOM}published")[:10],
-                "updated": _text(entry, f"{_ATOM}updated")[:10],
+                "published": _iso_date(_text(entry, f"{_ATOM}published")),
+                "updated": _iso_date(_text(entry, f"{_ATOM}updated")),
                 "journal": journal,
                 "volume": "",
                 "issue": "",
@@ -126,11 +245,29 @@ def parse_crossref(payload: Any, limit: int = 10) -> list[dict[str, Any]]:
     if isinstance(payload, str):
         payload = json.loads(payload)
     message = payload.get("message", payload) if isinstance(payload, dict) else {}
+    if not isinstance(message, dict):
+        message = {}
     items = message.get("items")
+    single_work = False
     if items is None and message.get("DOI"):
         items = [message]
+        single_work = True
+    if not isinstance(items, list):
+        items = []
+    if not single_work:
+        # A bibliographic search returns figures, tables and supplementary
+        # files as type "component".  They are not papers and can fill the
+        # whole page budget before the first real article.  A direct DOI
+        # lookup keeps its single record even when it is a component.
+        items = [
+            item
+            for item in items
+            if isinstance(item, dict) and item.get("type") != "component"
+        ]
     records: list[dict[str, Any]] = []
-    for item in (items or [])[:limit]:
+    for item in items[:limit]:
+        if not isinstance(item, dict):
+            continue
         authors: list[str] = []
         for author in item.get("author") or []:
             name = author.get("name") or " ".join(
@@ -206,7 +343,7 @@ def parse_pubmed(
                     for author in item.get("authors") or []
                     if author.get("name")
                 ],
-                "published": str(item.get("pubdate", "") or ""),
+                "published": _pubmed_date(item),
                 "updated": "",
                 "journal": str(item.get("fulljournalname") or item.get("source") or ""),
                 "volume": str(item.get("volume", "") or ""),
@@ -297,9 +434,9 @@ def search(
                 raise ValueError("arXiv sort must be relevance, submittedDate or lastUpdatedDate")
             if field not in ("all", "ti", "au", "abs"):
                 raise ValueError("arXiv field must be all, ti, au or abs")
+            search_query = _arxiv_search_query(query, field)
             url = _ARXIV_API.format(
-                field=field,
-                query=urllib.parse.quote_plus(query),
+                search_query=urllib.parse.quote_plus(search_query),
                 start=0,
                 limit=limit,
                 sort=sort,
@@ -316,7 +453,15 @@ def search(
             elif doi.lower().startswith("doi:"):
                 doi = doi[4:]
             url = _CROSSREF_DOI.format(doi=urllib.parse.quote(doi, safe="/"))
-            records = parse_crossref(_fetch_json(fetcher, url), limit=1)
+            try:
+                payload = _fetch_json(fetcher, url)
+            except engine.FetchError as exc:
+                if exc.status == 404:
+                    raise engine.NotFoundError(
+                        f"DOI not found: {doi} is not registered with Crossref"
+                    ) from exc
+                raise
+            records = parse_crossref(payload, limit=1)
         else:  # pubmed
             search_url = _PUBMED_SEARCH.format(
                 query=urllib.parse.quote_plus(query), limit=limit

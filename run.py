@@ -101,6 +101,12 @@ def build_parser() -> argparse.ArgumentParser:
         default="relevance",
         help="arXiv sort order (default: relevance)",
     )
+    parser.add_argument(
+        "--field",
+        choices=["all", "ti", "au", "abs"],
+        default="all",
+        help="arXiv query field: all, ti (title), au (author) or abs (abstract); other sources ignore it",
+    )
     parser.add_argument("--limit", type=int, default=500, help="map: maximum URLs to return (default: 500)")
     parser.add_argument("--max-sitemaps", type=int, default=5, help="map: sitemap files to read (default: 5)")
     parser.add_argument(
@@ -692,6 +698,7 @@ def cmd_scholar(args: argparse.Namespace, config: engine.FetchConfig) -> dict:
         config,
         limit=max(1, args.num_results),
         sort=args.sort,
+        field=args.field,
     )
     return _envelope("scholar", payload, args)
 
@@ -842,15 +849,34 @@ def main(argv: list[str] | None = None) -> int:
     except engine.PdfExtractionError as exc:
         return _fail(args, "pdf_extraction_failed", str(exc), "check that the file is a valid PDF", 5)
     except engine.VerificationRequired as exc:
+        message = str(exc)
+        if "bilibili" in message.lower() or "b23.tv" in message.lower():
+            hint = (
+                "open it in browser mode with playbook bili-video and a profile that "
+                "has passed Bilibili's check (CLI: node browser/run.js --playbook "
+                "bili-video --url <URL> --backend cdp); web-forager does not solve challenges"
+            )
+        else:
+            hint = (
+                "open it in browser mode with the wechat-dig playbook "
+                "(node browser/run.js --playbook wechat-dig --url <URL> --backend cdp) "
+                "after signing in once with browser/launch_chrome.py; "
+                "web-forager does not solve challenges"
+            )
         return _fail(
             args,
             "verification_required",
-            f"verification required: {exc}",
-            "open it in browser mode with the wechat-dig playbook "
-            "(node browser/run.js --playbook wechat-dig --url <URL> --backend cdp) "
-            "after signing in once with browser/launch_chrome.py; "
-            "web-forager does not solve challenges",
+            f"verification required: {message}",
+            hint,
             9,
+        )
+    except engine.NotFoundError as exc:
+        return _fail(
+            args,
+            "not_found",
+            str(exc),
+            "check the DOI; Crossref returns 404 for an identifier it has not registered",
+            2,
         )
     except engine.FetchError as exc:
         return _fail(args, "fetch_failed", f"fetch failed: {exc}", "check the URL and network", 4)

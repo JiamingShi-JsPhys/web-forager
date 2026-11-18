@@ -6,7 +6,7 @@ Search, fetch, extract and browse live in one engine: 360 / Bing / Sogou / Sogou
 
 **English** · [简体中文](README_zh.md)
 
-**Version:** 1.3.1 | **License:** MIT | **Python:** 3.10+ | **Node:** 18+ (browser mode)
+**Version:** 1.3.2 | **License:** MIT | **Python:** 3.10+ | **Node:** 18+ (browser mode)
 
 > For learning and information gathering only. Read the [full legal notice](#full-legal-notice) before relying on any output.
 
@@ -52,7 +52,7 @@ A search API returns links and stops. A scraper reads pages and ignores the rule
 - **Compliance is inside the fetcher, not in a README promise.** robots.txt, a per-origin delay, response-size caps, redirect limits and a contactable User-Agent apply to every request, including each search, sitemap and surf hop.
 - **It degrades instead of crashing.** A missing bridge is exit 3, missing Playwright is exit 6, missing `pypdf` is exit 7, a site without a sitemap is an empty result with a note, and a verification page is reported as `verification_required` rather than recycled as content.
 - **It tells the truth about what it read.** `engine_report` names every engine tried with its latency and error, `skipped` names every result that could not be read, `degraded` means the page was read but the playbook found nothing, and fetched text carries `trust: "untrusted"` plus `injection_findings` — code, severity, character span and matching snippet — when it looks like a prompt.
-- **Results are ordered even when one engine answers.** Coverage, title and phrase match, a small domain prior and snippet freshness decide the order; duplicate URLs are canonicalized (`utm_*`, fragments, `www.`, trailing slash), multi-engine hits get an RRF contribution, and light stemming lets `injection` meet `injections`. A result needs the exact phrase or at least two meaningful query terms; a Chinese tutorial that merely repeats one English product name is marked `language_match: false` and dropped when enough real answers exist. The list keeps at most two results per host and fills from the overflow when too few hosts answered; a thin first pass retries once with a simplified query. A `search_quality` block counts relevant, off-topic and language-mismatched rows.
+- **Results are ordered even when one engine answers.** Coverage, title and phrase match, the engine's own rank, intent cues (a comparison for a comparison question), a year match, a small domain prior and snippet freshness decide the order; duplicate URLs are canonicalized (`utm_*`, fragments, `www.`, trailing slash), multi-engine hits get an RRF contribution, and light stemming lets `injection` meet `injections`. A result needs the exact phrase or at least two meaningful query terms; a Chinese tutorial that merely repeats one English product name is marked `language_match: false` and dropped when enough real answers exist. Quiz and answer-key pages and paid placements are demoted, reposted copies of one article are merged, and each host gets one slot before any host gets a second (at most two). When the engines return nothing primary that addresses the question, a curated official page is added as a clearly labelled `source: "official-entry"` row: Python asyncio, Go, Rust, MDN, Wi-Fi, GDPR Article 17, the EU AI Act, Chinese policy, a DOI resolved through `doi.org`, or an entity site such as WHO, UN or NASA. A `search_quality` block counts relevant, off-topic, language-mismatched and quiz rows; a `risk` block names the lists that carry no official, primary or academic source, come mostly from WeChat, or were answered by one engine; and an `evidence` block says whether any result states the specific claim in the question (`supported` / `uncertain` / `unsupported`), adding a warning when it does not.
 - **A script shell is rendered, within a budget.** When a server returns almost no HTML, `--render auto` renders it once with Playwright before extraction; `fetch --query` and `surf` cap that at two pages per run.
 
 ---
@@ -77,7 +77,7 @@ Every host below has its own plugin marketplace. Register this repository's Git 
 https://github.com/JiamingShi-JsPhys/web-forager
 ```
 
-Append `#v1.3.1` to pin the install to this release. Drop it to follow the default branch.
+Append `#v1.3.2` to pin the install to this release. Drop it to follow the default branch.
 
 ## Method 3: install with commands
 
@@ -212,7 +212,7 @@ Add `--agent` to any action for a machine-readable `{"ok":true,"data":...}` enve
 
 The HTTP server exposes ten tools (`web_fetch`, `web_search`, `web_research`, `web_surf`, `web_scholar`, `web_map`, `web_bilibili`, `web_doctor`, `web_find`, `web_feed`); the browser server exposes four (`browser_list`, `browser_run`, `browser_session`, `browser_doctor`).
 
-MCP calls cannot relax the safety boundary: no tool parameter turns robots off, changes the injection gate, sets a proxy, supplies a browser bridge or allows a write action. The local file `clean` action is CLI-only and is not an MCP tool. One switch keeps a search cheap: `max_pages: 0` returns the result list with no page bodies. `web_search` also returns `engine_report` and `warnings` when the results do not mention the query.
+MCP calls cannot relax the safety boundary: no tool parameter turns robots off, changes the injection gate, sets a proxy, supplies a browser bridge or allows a write action. The local file `clean` action is CLI-only and is not an MCP tool. One switch keeps a search cheap: `max_pages: 0` returns the result list with no page bodies, and `compact: true` trims each result to title, URL, domain, relevance and a short snippet (measured 4.9k → 2.2k characters on the same query). A repeated identical query inside five minutes is served from the on-disk list cache. `web_search` also returns `engine_report` and `warnings` when the results do not mention the query.
 
 ### Browser mode (optional)
 
@@ -358,9 +358,9 @@ Records, the full action list, exit codes, requirements, repository layout and t
 
 The tool makes the requests a prompt or an agent asks for, so the boundaries are in the code rather than left to the caller's memory.
 
-- **Private targets are refused.** Loopback, RFC 1918, link-local (including `169.254.169.254`), CGNAT and their IPv6 forms are rejected before a socket opens, and again on every redirect hop, so a public URL cannot bounce the client into the LAN. `--allow-private` exists for local fixtures and trusted intranet tools and is off by default. The browser side installs the same guard as a request filter, so a hostile page cannot probe `http://127.0.0.1:...`.
+- **Private targets are refused.** Loopback, RFC 1918, link-local (including `169.254.169.254`), CGNAT and their IPv6 forms are rejected before a socket opens, and again on every redirect hop, so a public URL cannot bounce the client into the LAN. `--allow-private` exists for local fixtures and trusted intranet tools and is off by default; both MCP servers clear it, so a model cannot inherit the switch from the operator's shell. The browser side installs the same guard as a request filter, so a hostile page cannot probe `http://127.0.0.1:...`.
 - **robots.txt is a policy, not a lock.** The default `--robots-policy respect` refuses a disallowed path. `warn` reads it and writes `compliance.robots_overridden: true`; `ignore` records that robots was not consulted. A denial is reported to the caller — it is not a cue to retry the same URL with a tool that ignores robots.
-- **Query endpoints have their own policy.** Search engines and scholarly APIs are not target pages, so they use `--query-robots` (or `WEB_FORAGER_QUERY_ROBOTS`), default `warn`. Bing, 360, Sogou and the arXiv export API disallow their query paths, so the default reads them and records `query_robots: warn` in the engine report; `respect` refuses, and `ignore` skips the check. Only a user can choose, and MCP never accepts the switch from the model.
+- **Query endpoints have their own policy.** Search engines and scholarly APIs are not target pages, so they use `--query-robots` (or `WEB_FORAGER_QUERY_ROBOTS`), default `warn`. Bing, 360, Sogou and the arXiv export API disallow their query paths, so the default reads them and records `query_robots: warn` in the engine report; `respect` refuses, and `ignore` skips the check. Only a user can choose, and MCP never accepts the switch from the model. For target pages, the operator who starts the MCP server may set `WEB_FORAGER_ROBOTS_POLICY=warn` (or `ignore`); the default remains `respect` and every override is recorded in `compliance.robots_overridden`.
 - **The browser keeps its own profile.** The bundled bridge stores state under `~/.web-forager/browser/profile`, not in the browser you use every day. `browser/launch_chrome.py` starts Chrome on that profile, and `--save-storage-state` writes a Playwright state file with mode `0600` (refused inside `--root`). Attaching over CDP to a personal browser still works, but the run is marked `shared_browser: true` with a warning: every cookie and login in that profile is reachable by the pages a playbook opens.
 - **Fetched text is data, and says so.** Every record carries `trust: "untrusted"`. When a page contains instruction-shaped text, `injection_findings` records the code, severity, character span and a short matching snippet; the first warning repeats up to three of those snippets. Hard rules (forged system tags, secret-exfiltration requests, `curl ... | sh`, `rm -rf /`) can make `--input-gate strict` withhold the body. Soft rules ("ignore previous instructions", role swaps) are reported but never withhold on their own, because papers and security notes quote them legitimately. The scan covers the whole body in overlapping windows, before `max_chars` truncation. This is a screen, not a sandbox: the host must still keep untrusted content, private data and outbound requests out of one autonomous loop.
 
@@ -399,7 +399,7 @@ python -m pytest
 node --test "browser/tests/*.test.js"
 ```
 
-333 Python tests and 91 browser tests, all offline. The Python suite starts a temporary local HTTP server for robots.txt, articles, PDF/Office files, feeds, sitemaps, search-result pages and multi-hop surf pages; the browser suite uses a fake backend and fake bridges that speak the same wire protocol, plus snapshots recorded from live pages. CI runs both from a repository clone; release archives exclude the test folders.
+385 Python tests and 92 browser tests, all offline. The Python suite starts a temporary local HTTP server for robots.txt, articles, PDF/Office files, feeds, sitemaps, search-result pages and multi-hop surf pages; the browser suite uses a fake backend and fake bridges that speak the same wire protocol, plus snapshots recorded from live pages. CI runs both from a repository clone; release archives exclude the test folders.
 
 ## Full legal notice
 
@@ -437,7 +437,7 @@ Keep this disclaimer and the licence notice with any copy you publish or fork.
 
 ### Read before use
 
-- **This is a low-frequency tool, not a crawler fleet.** Requests are serial and rate-limited per origin (one per second by default); `surf`, search and sitemap reads do not fan out concurrently. It is unsuitable for large-scale harvesting.
+- **This is a low-frequency tool, not a crawler fleet.** Each origin gets one request at a time, at least a second apart by default (jitter only adds time, and a `429` lengthens that origin's back-off). A `fetch --query` batch reads results from different origins concurrently, never two to the same origin; `surf`, search and sitemap reads stay serial. It is unsuitable for large-scale harvesting.
 - **PDF extraction reads the text layer only.** Scanned PDFs need OCR, which this plugin does not do.
 - **Login walls are not bypassed.** `zhihu-dig` and `xhs-dig` stop with `login_required`; reuse a logged-in profile through your bridge.
 - **WeChat articles are not read in HTTP mode.** robots.txt disallows `/s`, and with an override the URL returns an environment check. The record says `verification_required`; `wechat-dig` can read the article only in a profile that has already passed that check.
@@ -448,7 +448,7 @@ Keep this disclaimer and the licence notice with any copy you publish or fork.
 
 - **Scholarly APIs return metadata and abstracts.** They do not return full papers; respect each platform's terms.
 - **`--render auto` is a heuristic, plus one bounded fallback.** Short visible text plus SPA markers triggers rendering; a minimal script shell triggers one extra render. Complex sites may still need `--render always`, and `--wait-for` / `--scroll` only work when Playwright is installed.
-- **Search depends on public result pages.** Availability varies by network, and every parser (`parse_360_html`, `parse_bing_html`, `parse_sogou_html`, `parse_weixin_html`, `parse_ddg_html`) encodes an assumption about the result-page markup. Each has an offline fixture; a redesign breaks the fixture test rather than silently returning nothing. **Baidu is not supported**: its result page is heavily guarded and no parser is shipped. Sogou may show a human-verification page, and `--engine all` can fail partially. A Chinese query never falls back to Bing, and dictionary pages that match one character of a query are dropped.
+- **Search depends on public result pages.** Availability varies by network, and every parser (`parse_360_html`, `parse_bing_html`, `parse_sogou_html`, `parse_weixin_html`, `parse_ddg_html`) encodes an assumption about the result-page markup. Each has an offline fixture; a redesign breaks the fixture test rather than silently returning nothing, and a live page that is large but yields no results is reported as `parser_drift` in `engine_report` instead of "empty". **Baidu is not supported**: every public result endpoint answers with Baidu's security-verification page, so no parser is shipped (`doctor` states this). Sogou may show a human-verification page, and `--engine all` can fail partially. A Chinese query stays on the Chinese engines unless it also names a Latin token (API, version, product) and they came back thin, in which case one Bing fallback is added; dictionary pages are always dropped.
 - **Only Bilibili has a site-specific HTTP adapter.** The other sites named above are read as ordinary pages, which is enough for public article pages and not enough for logged-in feeds.
 - **Browser mode needs a working bridge.** `playwright` and its Chromium binary are installed separately, `--doctor` names whichever is missing, and with no bridge at all a live run exits 3.
 - **`surf` follows ordinary links only.** It does not click buttons, execute JavaScript or handle login walls.
@@ -481,8 +481,6 @@ Keep this disclaimer and the licence notice with any copy you publish or fork.
 **NotFatJustRound** — early testing and feedback.
 
 **DeepSec** — the code-security auditor this repository is scanned with. It found the two command-injection paths closed in 1.2.3 and the supply-chain issue in the same release.
-
-**Claude** (Anthropic) — some assistance on parts of this project: code-snippet suggestions, and suggested changes to the tests, documentation and release notes. Every suggestion was reviewed and adopted only where a test, a check or a direct verification could confirm it; the author made the final call on the wording.
 
 [Full acknowledgements](docs/ACKNOWLEDGEMENTS.md)
 

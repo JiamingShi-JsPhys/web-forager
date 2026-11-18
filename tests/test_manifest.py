@@ -24,7 +24,7 @@ ALLOWED_DEPENDENCIES = {"requests", "beautifulsoup4", "trafilatura", "playwright
 def test_manifest_is_complete() -> None:
     manifest = json.loads((PLUGIN_ROOT / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["name"] == "web-forager"
-    assert manifest["version"] == "1.3.1"
+    assert manifest["version"] == "1.3.2"
     assert manifest["license"] == "MIT"
     assert set(manifest["actions"]) == {"fetch", "research", "find", "feed", "clean", "bili", "surf", "scholar", "map"}
     assert (PLUGIN_ROOT / manifest["entrypoint"]).is_file()
@@ -194,7 +194,7 @@ def test_multi_platform_manifests() -> None:
     for folder in (".claude-plugin", ".codex-plugin", ".codebuddy-plugin", ".dsh-plugin"):
         data = json.loads((PLUGIN_ROOT / folder / "plugin.json").read_text(encoding="utf-8"))
         assert data["name"] == "web-forager"
-        assert data["version"] == "1.3.1"
+        assert data["version"] == "1.3.2"
 
     for folder in (".claude-plugin", ".codex-plugin", ".codebuddy-plugin"):
         market = json.loads((PLUGIN_ROOT / folder / "marketplace.json").read_text(encoding="utf-8"))
@@ -253,7 +253,7 @@ def test_npm_package_carries_every_host_manifest() -> None:
 
 def test_cursor_rule_heading_matches_version() -> None:
     rule = (PLUGIN_ROOT / ".cursor" / "rules" / "web-forager.mdc").read_text(encoding="utf-8")
-    assert "agent operating rules (v1.3.1)" in rule
+    assert "agent operating rules (v1.3.2)" in rule
     assert "agent operating rules (v1.0.0)" not in rule
 
 

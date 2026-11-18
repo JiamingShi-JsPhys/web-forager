@@ -6,7 +6,7 @@
 
 **简体中文** · [English](README.md)
 
-**版本：** 1.3.1 ｜ **许可：** MIT ｜ **Python：** 3.10+ ｜ **Node：** 18+（浏览器模式）
+**版本：** 1.3.2 ｜ **许可：** MIT ｜ **Python：** 3.10+ ｜ **Node：** 18+（浏览器模式）
 
 > 本插件仅供学习与研究用途。使用前请阅读[完整法律声明](#完整法律声明)。
 
@@ -52,7 +52,7 @@
 - **合规在抓取器内部，不是 README 里的承诺。** robots.txt、按站点限速、响应体积上限、重定向次数上限与可联系的 User-Agent 对每个请求生效，搜索、sitemap 与 surf 的每一跳也不例外。
 - **缺少组件时降级，而不是崩溃。** 没有桥是退出码 3，缺 Playwright 是 6，缺 `pypdf` 是 7，站点没有 sitemap 是带说明的空结果，验证页会报告 `verification_required`，而不是被当成正文交出去。
 - **如实报告读到了什么。** `engine_report` 列出每个引擎的耗时与错误，`skipped` 列出每条读不到的结果，`degraded` 表示页面读到了但剧本没找到目标，抓取文本带 `trust: "untrusted"`；看起来像提示词时还会给出 `injection_findings`，其中包含规则码、严重级别、字符位置与命中的原文片段。
-- **只有一个引擎应答时也会排序。** 覆盖度、标题与短语命中、域名先验与摘要时效共同决定顺序；重复 URL 会先规范化（`utm_*`、片段、`www.`、末尾斜杠），多引擎同时命中的结果获得 RRF 加分，轻量词形归一让 `injection` 能遇到 `injections`。结果必须包含完整短语，或至少两个有意义的查询词；中文教程只重复一个英文产品名时会被标为 `language_match: false`，真有足够相关结果时直接剔除。每个域名最多两条，来源不足时用溢出结果补满；首轮过少时用简化查询重试一次。载荷里的 `search_quality` 会统计相关、跑题与语言不匹配的数量。
+- **只有一个引擎应答时也会排序。** 覆盖度、标题与短语命中、引擎自身的排序、意图线索（「怎么选」优先对比页）、年份命中、域名先验与摘要时效共同决定顺序；重复 URL 会先规范化（`utm_*`、片段、`www.`、末尾斜杠），多引擎同时命中的结果获得 RRF 加分，轻量词形归一让 `injection` 能遇到 `injections`。结果必须包含完整短语，或至少两个有意义的查询词；中文教程只重复一个英文产品名时会被标为 `language_match: false`，真有足够相关结果时直接剔除。题库、试题、答案页与竞价广告会被降权，同一篇文章的转载会被合并，每个域名先占一个位置再拿第二个（最多两条）。引擎没有返回任何真正切题的一手来源时，会补上明确标为 `source: "official-entry"` 的官方页：Python asyncio、Go、Rust、MDN、Wi-Fi、GDPR 第 17 条、欧盟 AI Act、中国政策，以及经 `doi.org` 解析的 DOI 或 WHO、联合国、NASA 等机构站点。载荷里的 `search_quality` 会统计相关、跑题、语言不匹配与题库页的数量，`risk` 点出「没有任何官方/一手/学术来源」「公众号占多数」「只有一个引擎应答」这三类弱列表，`evidence` 则说明是否有结果真正陈述了问题里的具体内容（`supported` / `uncertain` / `unsupported`），没有时附一条警告。
 - **脚本壳会渲染，但有预算。** 服务器只返回极少的 HTML 时，`--render auto` 会先用 Playwright 渲染一次再抽取；`fetch --query` 与 `surf` 每次最多两页。
 
 ---
@@ -77,7 +77,7 @@
 https://github.com/JiamingShi-JsPhys/web-forager
 ```
 
-在末尾加 `#v1.3.1` 可以把安装固定到本次发布；去掉则跟随默认分支。
+在末尾加 `#v1.3.2` 可以把安装固定到本次发布；去掉则跟随默认分支。
 
 ## 方法三：用命令安装
 
@@ -211,7 +211,7 @@ python run.py --action scholar --source doi --query "10.1038/nature14539"
 
 HTTP 服务暴露十个工具（`web_fetch`、`web_search`、`web_research`、`web_surf`、`web_scholar`、`web_map`、`web_bilibili`、`web_doctor`、`web_find`、`web_feed`）；浏览器服务暴露四个（`browser_list`、`browser_run`、`browser_session`、`browser_doctor`）。
 
-MCP 调用不能放宽安全边界：没有任何工具参数能关掉 robots、改注入闸门、设代理、指定浏览器桥命令或允许写操作。本地文件 `clean` 只在命令行提供，不是 MCP 工具。一个开关能让搜索变便宜：`max_pages: 0` 只返回结果列表、不抓正文。`web_search` 还会返回 `engine_report`，以及结果不含查询词时的 `warnings`。
+MCP 调用不能放宽安全边界：没有任何工具参数能关掉 robots、改注入闸门、设代理、指定浏览器桥命令或允许写操作。本地文件 `clean` 只在命令行提供，不是 MCP 工具。一个开关能让搜索变便宜：`max_pages: 0` 只返回结果列表、不抓正文；`compact: true` 把每条结果压到标题、URL、域名、相关性与一小段摘要（实测同一查询 4.9k → 2.2k 字符）。五分钟内重复同一查询会直接命中磁盘上的结果缓存。`web_search` 还会返回 `engine_report`，以及结果不含查询词时的 `warnings`。
 
 ### 浏览器模式（可选）
 
@@ -357,9 +357,9 @@ web-forager/
 
 工具会执行提示词或智能体要求的请求，因此边界写进代码，而不是留给调用方自行记得。
 
-- **拒绝私有目标。** 环回、RFC 1918、链路本地（含 `169.254.169.254`）、CGNAT 及其 IPv6 形式，在建立连接前就被拒绝，并且对每一次重定向再查一遍，公共 URL 无法把客户端弹进局域网。`--allow-private` 只服务本地夹具与可信内网工具，默认关闭。浏览器侧把同一道检查装成请求过滤器，恶意页面无法在浏览器内探测 `http://127.0.0.1:...`。
+- **拒绝私有目标。** 环回、RFC 1918、链路本地（含 `169.254.169.254`）、CGNAT 及其 IPv6 形式，在建立连接前就被拒绝，并且对每一次重定向再查一遍，公共 URL 无法把客户端弹进局域网。`--allow-private` 只服务本地夹具与可信内网工具，默认关闭；两个 MCP 服务都会清除它，模型无法从操作员的环境里继承这个开关。浏览器侧把同一道检查装成请求过滤器，恶意页面无法在浏览器内探测 `http://127.0.0.1:...`。
 - **robots.txt 是策略，不是锁。** 默认 `--robots-policy respect` 会拒绝被禁止的路径；`warn` 读取后把 `compliance.robots_overridden: true` 写进记录；`ignore` 则记录「未查 robots」。被拒会如实报告给调用方——它不是让你换一个不查 robots 的工具重抓同一 URL 的信号。
-- **查询接口有单独的策略。** 搜索引擎与学术 API 不是目标页，因此走 `--query-robots`（或环境变量 `WEB_FORAGER_QUERY_ROBOTS`），默认 `warn`。Bing、360、搜狗与 arXiv 导出接口都禁止各自的查询路径，所以默认会读取并在引擎报告里记录 `query_robots: warn`；`respect` 会拒绝，`ignore` 跳过检查。只有用户能选，MCP 绝不接受模型传入该开关。
+- **查询接口有单独的策略。** 搜索引擎与学术 API 不是目标页，因此走 `--query-robots`（或环境变量 `WEB_FORAGER_QUERY_ROBOTS`），默认 `warn`。Bing、360、搜狗与 arXiv 导出接口都禁止各自的查询路径，所以默认会读取并在引擎报告里记录 `query_robots: warn`；`respect` 会拒绝，`ignore` 跳过检查。只有用户能选，MCP 绝不接受模型传入该开关。目标页方面，启动 MCP 服务的操作员可以设置 `WEB_FORAGER_ROBOTS_POLICY=warn`（或 `ignore`）；默认仍是 `respect`，每次覆盖都会写进 `compliance.robots_overridden`。
 - **浏览器使用自己的配置目录。** 自带桥把状态存在 `~/.web-forager/browser/profile`，不是你的日常浏览器。`browser/launch_chrome.py` 会在这个 profile 上启动 Chrome；`--save-storage-state` 写出的 Playwright 状态文件权限为 `0600`（落在 `--root` 内会被拒绝）。经 CDP 接入个人浏览器仍然可用，但运行结果会标 `shared_browser: true` 并附警告：那个配置里的每个 Cookie 与登录态，剧本打开的页面都能碰到。
 - **抓取到的文本是数据，记录里也这么写。** 每条记录带 `trust: "untrusted"`。页面里出现指令形状的文字时，`injection_findings` 会记录规则码、严重级别、字符位置与一小段命中原文，`warnings` 第一条会重复最多三条证据。硬规则（伪造 system 标签、要求外传密钥、`curl ... | sh`、`rm -rf /`）才可能让 `--input-gate strict` 扣留正文；软规则（“忽略之前的指令”、角色切换）只报告、不扣留，因为论文与安全文章会合法引用这些话术。扫描按重叠窗口覆盖全文，发生在 `max_chars` 截断之前。这是一道筛子而不是沙箱：宿主仍须避免让不可信内容、私有数据与对外请求同时出现在一个自主循环里。
 
@@ -398,7 +398,7 @@ python -m pytest
 node --test "browser/tests/*.test.js"
 ```
 
-333 个 Python 测试与 91 个浏览器测试，全部离线。Python 套件会起一个临时本地 HTTP 站点，提供 robots.txt、文章、PDF/Office 文件、订阅源、sitemap、搜索结果页与多跳 surf 页面；浏览器套件用假后端与说同一套线协议的假桥，再加真实页面导出的快照。CI 从仓库克隆里跑两套；发布归档不含测试目录。
+385 个 Python 测试与 92 个浏览器测试，全部离线。Python 套件会起一个临时本地 HTTP 站点，提供 robots.txt、文章、PDF/Office 文件、订阅源、sitemap、搜索结果页与多跳 surf 页面；浏览器套件用假后端与说同一套线协议的假桥，再加真实页面导出的快照。CI 从仓库克隆里跑两套；发布归档不含测试目录。
 
 ## 完整法律声明
 
@@ -436,7 +436,7 @@ web-forager 把读取公开可访问页面的过程自动化，仅用于学习�
 
 ### 使用前必读
 
-- **这是低频工具，不是爬虫集群。** 请求串行、按站点限速（默认每秒一次），`surf`、搜索与 sitemap 读取都不做并发扇出，因此不适合大规模采集。
+- **这是低频工具，不是爬虫集群。** 每个 origin 同时只跑一个请求，默认至少间隔一秒（抖动只会加长间隔，遇到 `429` 会拉长该 origin 的退避）；`fetch --query` 的批量抓取会在不同 origin 之间并发，同一 origin 绝不并发；`surf`、搜索与 sitemap 读取仍不并发扇出。因此不适合大规模采集。
 - **PDF 只读取文本层。** 扫描件需要 OCR，本插件不做。
 - **不绕过登录墙。** `zhihu-dig` 与 `xhs-dig` 会以 `login_required` 停下；请通过桥复用已登录的配置目录。
 - **公众号正文在 HTTP 模式下读不到。** robots.txt 禁止 `/s`，即使覆盖也会返回环境校验页。记录写成 `verification_required`；`wechat-dig` 只能在已通过该校验的配置里读到正文。
@@ -447,7 +447,7 @@ web-forager 把读取公开可访问页面的过程自动化，仅用于学习�
 
 - **学术 API 只返回元数据与摘要。** 不返回全文；请遵守各平台条款。
 - **`--render auto` 是启发式判断，外加一次有预算的兜底。** 可见文字过少加 SPA 标记会触发渲染；极小的脚本壳会额外渲染一次。复杂站点可能仍需要 `--render always`，而 `--wait-for` / `--scroll` 只在装了 Playwright 时生效。
-- **搜索依赖公开结果页。** 可用性随网络变化，且每个解析器（`parse_360_html`、`parse_bing_html`、`parse_sogou_html`、`parse_weixin_html`、`parse_ddg_html`）都对结果页结构有假设。每个都有 `tests/fixtures/` 下的离线夹具，改版会让夹具测试失败，而不是悄悄返回空。**不支持百度**：其结果页防护很强，本插件没有对应解析器。搜狗可能弹人机验证，`--engine all` 可能部分失败。中文查询不会回落到 Bing，只命中查询中单个字的词典页会被过滤。
+- **搜索依赖公开结果页。** 可用性随网络变化，且每个解析器（`parse_360_html`、`parse_bing_html`、`parse_sogou_html`、`parse_weixin_html`、`parse_ddg_html`）都对结果页结构有假设。每个都有 `tests/fixtures/` 下的离线夹具，改版会让夹具测试失败，而不是悄悄返回空；线上页面明明很大却解析不出结果时，`engine_report` 会标 `parser_drift`，而不是写成「空结果」。**不支持百度**：三条公开结果入口都返回「百度安全验证」页，因此不附带解析器（`doctor` 会写明这一点）。搜狗可能弹人机验证，`--engine all` 可能部分失败。中文查询默认只问中文引擎；若查询里同时出现拉丁词（API、版本号、产品名）且首轮结果偏薄，会追加一次 Bing 回退查询，单字词典页始终会被过滤。
 - **只有 B 站有站点专用 HTTP 适配器。** 上面提到的其他站点都按普通页面读取，够用于公开文章页，不够用于登录后的信息流。
 - **浏览器模式需要可用的桥。** `playwright` 与 Chromium 二进制要另外安装，`--doctor` 会指出缺的是哪一个；完全找不到桥时，真实运行以退出码 3 返回。
 - **`surf` 只跟随普通链接。** 不点按钮、不执行 JavaScript、不处理登录墙。
@@ -480,8 +480,6 @@ web-forager 把读取公开可访问页面的过程自动化，仅用于学习�
 **NotFatJustRound** —— 早期测试与反馈。
 
 **DeepSec** —— 本仓库使用的代码安全审计器。它发现了 1.2.3 中关闭的两条命令注入路径，以及同一版本的供应链问题。
-
-**Claude**（Anthropic）—— 在本项目部分环节提供了一些辅助：代码片段、测试、文档与发布说明方面的修改建议。所有建议都经审阅，只有通过测试、检查或实际验证的才会采纳；最终内容由作者定稿。
 
 [详细致谢](docs/ACKNOWLEDGEMENTS_zh.md)
 

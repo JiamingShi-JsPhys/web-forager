@@ -20,6 +20,19 @@ def test_mcp_never_accepts_a_query_robots_override(monkeypatch) -> None:
     assert mcp_server._config({"query_robots": "ignore"}).query_robots == "warn"
 
 
+def test_mcp_robots_policy_is_an_operator_environment_choice(monkeypatch) -> None:
+    monkeypatch.setenv("WEB_FORAGER_ROBOTS_POLICY", "warn")
+    config = mcp_server._config({"robots_policy": "ignore"})
+    assert config.robots_policy == "warn"
+    assert config.respect_robots is True
+
+    monkeypatch.setenv("WEB_FORAGER_ROBOTS_POLICY", "ignore")
+    assert mcp_server._config({}).robots_policy == "ignore"
+
+    monkeypatch.setenv("WEB_FORAGER_ROBOTS_POLICY", "not-a-policy")
+    assert mcp_server._config({}).robots_policy == "respect"
+
+
 def test_search_tool_keeps_max_pages_zero_from_becoming_one() -> None:
     # Zero means "results only, no page bodies"; the shared search path now
     # treats max_pages as readable pages, so it must not be floored to one.
@@ -146,3 +159,8 @@ def test_new_research_question_resets_the_call_budget(monkeypatch) -> None:
     monkeypatch.setattr(mcp_server, "_LAST_CALL_AT", time.monotonic())
     mcp_server._tool_research({"query": "新问题"})
     assert sum(mcp_server._SESSION_CALLS.values()) == 1
+
+
+def test_mcp_never_inherits_the_private_address_opt_in(monkeypatch) -> None:
+    monkeypatch.setenv("WEB_FORAGER_ALLOW_PRIVATE", "1")
+    assert mcp_server._config({}).allow_private is False
